@@ -14,7 +14,7 @@ import {
   Tooltip,
   Box,
 } from "@shopify/polaris";
-import { RefreshMajor } from "@shopify/polaris-icons";
+import { RefreshIcon } from "@shopify/polaris-icons";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedFetch";
 
 function statusBadge(status) {
@@ -104,7 +104,7 @@ export default function DeliveriesPage() {
         size="slim"
         onClick={() => handleRetry(d.id)}
         loading={retrying === d.id}
-        icon={RefreshMajor}
+        icon={RefreshIcon}
       >
         Retry
       </Button>
@@ -121,7 +121,7 @@ export default function DeliveriesPage() {
         content: "Refresh",
         onAction: loadDeliveries,
         loading,
-        icon: RefreshMajor,
+        icon: RefreshIcon,
       }}
       backAction={{ content: "Settings", url: "/" }}
     >
