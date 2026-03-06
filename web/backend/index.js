@@ -28,7 +28,7 @@ const shopify = shopifyApp({
     restResources: {},
     billing: undefined,
   },
-  hostName: process.env.SHOPIFY_APP_URL ? process.env.SHOPIFY_APP_URL.replace(/https:\/\//, "") : "",
+  hostName: process.env.HOST_NAME || "hashtopic-postback.onrender.com",
   auth: {
     path: "/api/auth",
     callbackPath: "/api/auth/callback",
