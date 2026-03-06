@@ -122,7 +122,7 @@ app.use("/api/deliveries", deliveriesRouter(shopify));
 // Serve frontend
 app.use(shopify.cspHeaders());
 app.use(express.static(STATIC_PATH, { index: false }));
-app.use("/*", shopify.ensureInstalledOnShop(), async (_req, res) => {
+app.use("/*", async (_req, res) => {
   return res.set("Content-Type", "text/html").send(
     readFileSync(join(STATIC_PATH, "index.html"))
   );
