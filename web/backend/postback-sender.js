@@ -1,4 +1,4 @@
-import { getSettings } from "../db.js";
+import { getSettings } from "./db.js";
 
 const MAX_ATTEMPTS = 5;
 // Retry delays in seconds: immediate(0), +5m, +30m, +2h, +24h
