@@ -53,14 +53,14 @@ const shopify = shopifyApp({
 shopify.api.webhooks.addHandlers({
   ORDERS_PAID: [
     {
-      deliveryMethod: DeliveryMethod.Http,
+      deliveryMethod: "http",
       callbackUrl: "/api/webhooks",
       callback: webhookHandlers.ordersPaid,
     },
   ],
   ORDERS_UPDATED: [
     {
-      deliveryMethod: DeliveryMethod.Http,
+      deliveryMethod: "http",
       callbackUrl: "/api/webhooks",
       callback: webhookHandlers.ordersUpdated,
     },
