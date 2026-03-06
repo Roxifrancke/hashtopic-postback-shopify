@@ -44,7 +44,7 @@ const DEFAULT_SETTINGS = {
 export default function SettingsPage() {
   const fetch = useAuthenticatedFetch();
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [saveResult, setSaveResult] = useState(null); // {type, message}
