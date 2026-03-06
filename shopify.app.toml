@@ -1,6 +1,6 @@
 name = "HashTopic Postback"
-client_id = "YOUR_CLIENT_ID"
-application_url = "https://YOUR_APP_URL"
+client_id = "cabe3de7ab3c6bf8f95c6b7aa2d88b25"
+application_url = "https://hashtopic-postback-shopify.onrender.com"
 embedded = true
 
 [access_scopes]
@@ -8,7 +8,7 @@ scopes = "read_orders,read_customers"
 
 [auth]
 redirect_urls = [
-  "https://YOUR_APP_URL/api/auth/callback"
+  "https://hashtopic-postback-shopify.onrender.com/api/auth/callback"
 ]
 
 [webhooks]
