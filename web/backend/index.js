@@ -3,7 +3,7 @@ import express from "express";
 import helmet from "helmet";
 import compression from "compression";
 import morgan from "morgan";
-import { join } from "path";
+// import { join } from "path";
 import { readFileSync } from "fs";
 import { shopifyApp } from "@shopify/shopify-app-express";
 import { SQLiteSessionStorage } from "@shopify/shopify-app-session-storage-sqlite";
@@ -43,9 +43,7 @@ const shopify = shopifyApp({
   webhooks: {
     path: "/api/webhooks",
   },
-  sessionStorage: new SQLiteSessionStorage(
-    join(process.cwd(), "database.sqlite")
-  ),
+  sessionStorage: new SQLiteSessionStorage(":memory:"),
 });
 
 // NOTE: No addHandlers() call here — that caused DeliveryMethod version conflicts.
