@@ -42,7 +42,7 @@ function formatDate(isoStr) {
 export default function DeliveriesPage() {
   const fetch = useAuthenticatedFetch();
   const [deliveries, setDeliveries] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [retrying, setRetrying] = useState(null);
   const [banner, setBanner] = useState(null);
 
