@@ -81,14 +81,29 @@ app.use(
 // --- ADD THIS HERE (Line 79) ---
 app.get("/health", (req, res) => res.status(200).send("OK"));
 
-// 2. Shopify Exit Iframe (Point 3)
+// 2. Shopify Exit Iframe (Updated with App Bridge v4)
 app.get("/exitiframe", (req, res) => {
   const destination = req.query.redirectUri;
-  // This helps Shopify break out of the iframe for re-authentication
+  
   res.set("Content-Type", "text/html").send(`
-    <script type="text/javascript">
-      window.top.location.href = "${destination}";
-    </script>
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+        <script>
+          document.addEventListener('DOMContentLoaded', function() {
+            // 2. Safely decode the destination URL
+            var redirectUrl = decodeURIComponent("${destination}");
+            
+            // 3. App Bridge intercepts window.open and securely redirects the parent window
+            window.open(redirectUrl, "_top");
+          });
+        </script>
+      </head>
+      <body>
+        <p>Redirecting to authenticate...</p>
+      </body>
+    </html>
   `);
 });
 
