@@ -1,0 +1,29 @@
+{
+  "name": "hashtopic-postback-shopify-web",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "cross-env NODE_ENV=development nodemon backend/index.js --watch backend",
+    "build": "cd frontend && npm run build",
+    "start": "cross-env NODE_ENV=production node backend/index.js"
+  },
+  "dependencies": {
+    "@shopify/shopify-app-express": "^3.0.0",
+    "@shopify/shopify-app-session-storage-sqlite": "^3.0.0",
+    "@shopify/shopify-api": "^10.0.0",
+    "axios": "^1.6.0",
+    "better-sqlite3": "^9.0.0",
+    "compression": "^1.7.4",
+    "cross-env": "^7.0.3",
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "helmet": "^7.0.0",
+    "morgan": "^1.10.0",
+    "node-cron": "^3.0.3",
+    "serialize-error": "^11.0.3",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  }
+}

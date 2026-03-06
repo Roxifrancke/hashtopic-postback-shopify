@@ -1,0 +1,17 @@
+{
+  "name": "hashtopic-postback-shopify",
+  "private": true,
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev": "shopify app dev",
+    "deploy": "shopify app deploy",
+    "generate": "shopify app generate",
+    "info": "shopify app info",
+    "shopify": "shopify",
+    "docker-start": "/usr/bin/node backend/index.js"
+  },
+  "workspaces": [
+    "web"
+  ],
+  "dependencies": {}
+}
