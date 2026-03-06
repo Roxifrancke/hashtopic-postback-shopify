@@ -75,9 +75,9 @@ app.use(
     contentSecurityPolicy: false,
     crossOriginOpenerPolicy: false,
     crossOriginEmbedderPolicy: false,
+    xFrameOptions: false, // <-- ADD THIS LINE
   })
 );
-
 // --- ADD THIS HERE (Line 79) ---
 app.get("/health", (req, res) => res.status(200).send("OK"));
 
