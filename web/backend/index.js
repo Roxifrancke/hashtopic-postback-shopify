@@ -7,7 +7,7 @@ import { join } from "path";
 import { readFileSync } from "fs";
 import { shopifyApp } from "@shopify/shopify-app-express";
 import { SQLiteSessionStorage } from "@shopify/shopify-app-session-storage-sqlite";
-import { ApiVersion, DeliveryMethod } from "@shopify/shopify-api";
+import { ApiVersion } from "@shopify/shopify-api";
 import { restResources } from "@shopify/shopify-api/rest/admin/2024-01";
 
 import db from "./db.js";
@@ -50,22 +50,22 @@ const shopify = shopifyApp({
 });
 
 // Register webhook topics
-shopify.api.webhooks.addHandlers({
-  ORDERS_PAID: [
-    {
-      deliveryMethod: "http",
-      callbackUrl: "/api/webhooks",
-      callback: webhookHandlers.ordersPaid,
-    },
-  ],
-  ORDERS_UPDATED: [
-    {
-      deliveryMethod: "http",
-      callbackUrl: "/api/webhooks",
-      callback: webhookHandlers.ordersUpdated,
-    },
-  ],
-});
+// shopify.api.webhooks.addHandlers({
+//   ORDERS_PAID: [
+//     {
+//       deliveryMethod: "http",
+//       callbackUrl: "/api/webhooks",
+//       callback: webhookHandlers.ordersPaid,
+//     },
+//   ],
+//   ORDERS_UPDATED: [
+//     {
+//       deliveryMethod: "http",
+//       callbackUrl: "/api/webhooks",
+//       callback: webhookHandlers.ordersUpdated,
+//     },
+//   ],
+// });
 
 const app = express();
 
