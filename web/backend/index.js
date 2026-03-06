@@ -27,13 +27,16 @@ const STATIC_PATH =
 console.log("--- DEBUG: Starting Shopify App Init ---");
 console.log("SHOPIFY_APP_URL from env:", process.env.SHOPIFY_APP_URL);
 
+const HOST_NAME = (process.env.SHOPIFY_APP_URL || "hashtopic-postback-shopify.onrender.com").replace(/^https?:\/\//, "");
+console.log("Derived hostName:", HOST_NAME);
+
 const shopify = shopifyApp({
   api: {
     apiVersion: ApiVersion.January24,
-    restResources, // Change this from {} to restResources
+    restResources,
     billing: undefined,
   },
-  hostName: "hashtopic-postback-shopify.onrender.com",
+  hostName: HOST_NAME,
   auth: {
     path: "/api/auth",
     callbackPath: "/api/auth/callback",
