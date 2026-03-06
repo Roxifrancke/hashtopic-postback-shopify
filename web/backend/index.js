@@ -23,7 +23,6 @@ const STATIC_PATH =
     ? `${process.cwd()}/frontend/dist`
     : `${process.cwd()}/frontend/`;
 
-// DIAGNOSTIC LOG: This will tell us if Render is actually using your new code
 console.log("--- DEBUG: Starting Shopify App Init ---");
 console.log("SHOPIFY_APP_URL from env:", process.env.SHOPIFY_APP_URL);
 
@@ -41,50 +40,36 @@ const shopify = shopifyApp({
     path: "/api/auth",
     callbackPath: "/api/auth/callback",
   },
+  webhooks: {
+    path: "/api/webhooks",
+  },
   sessionStorage: new SQLiteSessionStorage(
     join(process.cwd(), "database.sqlite")
   ),
 });
 
-// Register webhook topics
-// shopify.api.webhooks.addHandlers({
-//   ORDERS_PAID: [
-//     {
-//       deliveryMethod: "http",
-//       callbackUrl: "/api/webhooks",
-//       callback: webhookHandlers.ordersPaid,
-//     },
-//   ],
-//   ORDERS_UPDATED: [
-//     {
-//       deliveryMethod: "http",
-//       callbackUrl: "/api/webhooks",
-//       callback: webhookHandlers.ordersUpdated,
-//     },
-//   ],
-// });
+// NOTE: No addHandlers() call here — that caused DeliveryMethod version conflicts.
+// Webhook subscriptions are registered via shopify.app.toml instead.
+// We handle incoming webhooks manually in the route below.
 
 const app = express();
 
 app.use(morgan("combined"));
 app.use(compression());
 
-// CSP adjustments for embedded app
 app.use(
   helmet({
     contentSecurityPolicy: false,
     crossOriginOpenerPolicy: false,
     crossOriginEmbedderPolicy: false,
-    xFrameOptions: false, // <-- ADD THIS LINE
+    xFrameOptions: false,
   })
 );
-// --- ADD THIS HERE (Line 79) ---
+
 app.get("/health", (req, res) => res.status(200).send("OK"));
 
-// 2. Shopify Exit Iframe (Updated with App Bridge v4)
 app.get("/exitiframe", (req, res) => {
   const destination = req.query.redirectUri;
-  
   res.set("Content-Type", "text/html").send(`
     <!DOCTYPE html>
     <html>
@@ -92,35 +77,43 @@ app.get("/exitiframe", (req, res) => {
         <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
         <script>
           document.addEventListener('DOMContentLoaded', function() {
-            // 2. Safely decode the destination URL
             var redirectUrl = decodeURIComponent("${destination}");
-            
-            // 3. App Bridge intercepts window.open and securely redirects the parent window
             window.open(redirectUrl, "_top");
           });
         </script>
       </head>
-      <body>
-        <p>Redirecting to authenticate...</p>
-      </body>
+      <body><p>Redirecting to authenticate...</p></body>
     </html>
   `);
 });
 
-// Shopify auth middleware
+// Shopify auth routes
 app.get(shopify.config.auth.path, shopify.auth.begin());
 app.get(
   shopify.config.auth.callbackPath,
   shopify.auth.callback(),
   shopify.redirectToShopifyOrAppRoot()
 );
-app.post(
-  "/api/webhooks",
-  express.text({ type: '*/*' }),
-  shopify.processWebhooks({ webhookHandlers: shopify.api.webhooks })
-);;
 
-// Public pixel script endpoint (no auth required)
+// Webhook route — handled manually to avoid DeliveryMethod version conflicts
+app.post(shopify.config.webhooks.path, express.text({ type: "*/*" }), async (req, res) => {
+  const topic = req.headers["x-shopify-topic"];
+  const shop = req.headers["x-shopify-shop-domain"];
+
+  try {
+    if (topic === "orders/paid") {
+      await webhookHandlers.ordersPaid(topic, shop, req.body);
+    } else if (topic === "orders/updated") {
+      await webhookHandlers.ordersUpdated(topic, shop, req.body);
+    }
+    res.status(200).send("OK");
+  } catch (err) {
+    console.error("[HT] Webhook route error:", err);
+    res.status(500).send("Error");
+  }
+});
+
+// Public pixel script
 app.use("/pixel", pixelScriptRouter);
 
 // Authenticated API routes
