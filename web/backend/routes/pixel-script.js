@@ -67,7 +67,7 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
 
   function getCookie(name) {
     try {
-      var match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + '=([^;]*)'));
+      var match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)'));
       return match ? decodeURIComponent(match[1]) : null;
     } catch(e) { return null; }
   }
