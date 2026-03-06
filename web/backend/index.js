@@ -33,7 +33,7 @@ const shopify = shopifyApp({
     restResources, // Change this from {} to restResources
     billing: undefined,
   },
-  hostName: "hashtopic-postback.onrender.com",
+  hostName: "hashtopic-postback-shopify.onrender.com",
   auth: {
     path: "/api/auth",
     callbackPath: "/api/auth/callback",
