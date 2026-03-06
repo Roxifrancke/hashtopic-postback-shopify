@@ -3,7 +3,7 @@ import express from "express";
 import helmet from "helmet";
 import compression from "compression";
 import morgan from "morgan";
-// import { join } from "path";
+import { join } from "path";
 import { readFileSync } from "fs";
 import { shopifyApp } from "@shopify/shopify-app-express";
 import { SQLiteSessionStorage } from "@shopify/shopify-app-session-storage-sqlite";
