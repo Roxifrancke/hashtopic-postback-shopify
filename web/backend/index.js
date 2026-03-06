@@ -20,8 +20,8 @@ import { pixelScriptRouter } from "./routes/pixel-script.js";
 const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || "3000", 10);
 const STATIC_PATH =
   process.env.NODE_ENV === "production"
-    ? `${process.cwd()}/frontend/dist`
-    : `${process.cwd()}/frontend/`;
+    ? `${process.cwd()}/web/frontend/dist`
+    : `${process.cwd()}/web/frontend/`;
 
 console.log("--- DEBUG: Starting Shopify App Init ---");
 console.log("SHOPIFY_APP_URL from env:", process.env.SHOPIFY_APP_URL);
