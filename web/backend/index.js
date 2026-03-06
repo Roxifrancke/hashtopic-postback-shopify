@@ -78,6 +78,9 @@ app.use(
   })
 );
 
+// --- ADD THIS HERE (Line 79) ---
+app.get("/health", (req, res) => res.status(200).send("OK"));
+
 // Shopify auth middleware
 app.get(shopify.config.auth.path, shopify.auth.begin());
 app.get(
