@@ -1,7 +1,7 @@
 import React from "react";
 import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { Frame, Navigation } from "@shopify/polaris";
-import { SettingsMajor, ListMajor } from "@shopify/polaris-icons";
+import { SettingsIcon, OrderIcon } from "@shopify/polaris-icons";
 import SettingsPage from "./pages/SettingsPage";
 import DeliveriesPage from "./pages/DeliveriesPage";
 
@@ -15,14 +15,14 @@ export default function App() {
         items={[
           {
             label: "Settings",
-            icon: SettingsMajor,
+            icon: SettingsIcon,
             url: "/",
             onClick: () => navigate("/"),
             selected: location.pathname === "/",
           },
           {
             label: "Deliveries",
-            icon: ListMajor,
+            icon: OrderIcon,
             url: "/deliveries",
             onClick: () => navigate("/deliveries"),
             selected: location.pathname === "/deliveries",
