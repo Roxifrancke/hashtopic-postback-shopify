@@ -115,10 +115,10 @@ app.get(
   shopify.redirectToShopifyOrAppRoot()
 );
 app.post(
-  shopify.config.webhooks.path,
-  express.text({ type: '*/*' }), // Required for webhook signature verification
+  "/api/webhooks",
+  express.text({ type: '*/*' }),
   shopify.processWebhooks({ webhookHandlers: shopify.api.webhooks })
-);
+);;
 
 // Public pixel script endpoint (no auth required)
 app.use("/pixel", pixelScriptRouter);
