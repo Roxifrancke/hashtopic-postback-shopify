@@ -139,8 +139,14 @@ app.use("/api/*", (req, res, next) => {
 app.use("/api/settings", settingsRouter(shopify));
 app.use("/api/deliveries", deliveriesRouter(shopify));
 
-// Serve frontend
-app.use(shopify.cspHeaders());
+// Serve frontend — set frame-ancestors to allow Shopify Admin to embed the app
+app.use((req, res, next) => {
+  res.setHeader(
+    "Content-Security-Policy",
+    "frame-ancestors https://admin.shopify.com https://*.myshopify.com;"
+  );
+  next();
+});
 app.use(express.static(STATIC_PATH, { index: false }));
 app.use("/*", async (_req, res) => {
   return res.set("Content-Type", "text/html").send(
