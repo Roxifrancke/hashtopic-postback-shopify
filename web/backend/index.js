@@ -8,6 +8,7 @@ import { readFileSync } from "fs";
 import { shopifyApp } from "@shopify/shopify-app-express";
 import { SQLiteSessionStorage } from "@shopify/shopify-app-session-storage-sqlite";
 import { ApiVersion, DeliveryMethod } from "@shopify/shopify-api";
+import { restResources } from "@shopify/shopify-api/rest/admin/2024-01";
 
 import db from "./db.js";
 import settingsRouter from "./routes/settings.js";
@@ -29,10 +30,9 @@ console.log("SHOPIFY_APP_URL from env:", process.env.SHOPIFY_APP_URL);
 const shopify = shopifyApp({
   api: {
     apiVersion: ApiVersion.January24,
-    restResources: {},
+    restResources, // Change this from {} to restResources
     billing: undefined,
   },
-  // FORCE the value here. If this fails, Render is NOT running this file.
   hostName: "hashtopic-postback.onrender.com",
   auth: {
     path: "/api/auth",
