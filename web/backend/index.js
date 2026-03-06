@@ -22,13 +22,18 @@ const STATIC_PATH =
     ? `${process.cwd()}/frontend/dist`
     : `${process.cwd()}/frontend/`;
 
+// DIAGNOSTIC LOG: This will tell us if Render is actually using your new code
+console.log("--- DEBUG: Starting Shopify App Init ---");
+console.log("SHOPIFY_APP_URL from env:", process.env.SHOPIFY_APP_URL);
+
 const shopify = shopifyApp({
   api: {
     apiVersion: ApiVersion.January24,
     restResources: {},
     billing: undefined,
   },
-  hostName: "hashtopic-postback.onrender.com", 
+  // FORCE the value here. If this fails, Render is NOT running this file.
+  hostName: "hashtopic-postback.onrender.com",
   auth: {
     path: "/api/auth",
     callbackPath: "/api/auth/callback",
