@@ -47,7 +47,7 @@ const shopify = shopifyApp({
 });
 
 // Register webhook topics
-shopify.webhooks.addHandlers({
+shopify.api.webhooks.addHandlers({
   ORDERS_PAID: [
     {
       deliveryMethod: DeliveryMethod.Http,
@@ -87,7 +87,8 @@ app.get(
 );
 app.post(
   shopify.config.webhooks.path,
-  shopify.processWebhooks({ webhookHandlers: shopify.webhooks })
+  express.text({ type: '*/*' }), // Required for webhook signature verification
+  shopify.processWebhooks({ webhookHandlers: shopify.api.webhooks })
 );
 
 // Public pixel script endpoint (no auth required)
