@@ -81,6 +81,17 @@ app.use(
 // --- ADD THIS HERE (Line 79) ---
 app.get("/health", (req, res) => res.status(200).send("OK"));
 
+// 2. Shopify Exit Iframe (Point 3)
+app.get("/exitiframe", (req, res) => {
+  const destination = req.query.redirectUri;
+  // This helps Shopify break out of the iframe for re-authentication
+  res.set("Content-Type", "text/html").send(`
+    <script type="text/javascript">
+      window.top.location.href = "${destination}";
+    </script>
+  `);
+});
+
 // Shopify auth middleware
 app.get(shopify.config.auth.path, shopify.auth.begin());
 app.get(
