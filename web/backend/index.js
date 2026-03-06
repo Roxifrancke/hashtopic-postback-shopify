@@ -67,20 +67,18 @@ app.use(
 app.get("/health", (req, res) => res.status(200).send("OK"));
 
 app.get("/exitiframe", (req, res) => {
-  const destination = req.query.redirectUri;
+  const redirectUri = req.query.redirectUri;
+  const sanitized = redirectUri ? decodeURIComponent(redirectUri) : "/";
   res.set("Content-Type", "text/html").send(`
     <!DOCTYPE html>
     <html>
       <head>
-        <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
-        <script>
-          document.addEventListener('DOMContentLoaded', function() {
-            var redirectUrl = decodeURIComponent("${destination}");
-            window.open(redirectUrl, "_top");
-          });
-        </script>
+        <meta http-equiv="refresh" content="0;url=${sanitized}" />
       </head>
-      <body><p>Redirecting to authenticate...</p></body>
+      <body>
+        <script>window.top.location.href = ${JSON.stringify(sanitized)};</script>
+        <p>Redirecting...</p>
+      </body>
     </html>
   `);
 });
