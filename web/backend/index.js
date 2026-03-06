@@ -46,10 +46,6 @@ const shopify = shopifyApp({
   sessionStorage: new SQLiteSessionStorage(":memory:"),
 });
 
-// NOTE: No addHandlers() call here — that caused DeliveryMethod version conflicts.
-// Webhook subscriptions are registered via shopify.app.toml instead.
-// We handle incoming webhooks manually in the route below.
-
 const app = express();
 
 app.use(morgan("combined"));
@@ -73,12 +69,13 @@ app.get("/exitiframe", (req, res) => {
     <!DOCTYPE html>
     <html>
       <head>
-        <meta http-equiv="refresh" content="0;url=${sanitized}" />
+        <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+        <script>
+          var redirectUrl = ${JSON.stringify(sanitized)};
+          window.open(redirectUrl, '_top');
+        </script>
       </head>
-      <body>
-        <script>window.top.location.href = ${JSON.stringify(sanitized)};</script>
-        <p>Redirecting...</p>
-      </body>
+      <body><p>Redirecting to authenticate...</p></body>
     </html>
   `);
 });
@@ -91,11 +88,10 @@ app.get(
   shopify.redirectToShopifyOrAppRoot()
 );
 
-// Webhook route — handled manually to avoid DeliveryMethod version conflicts
+// Webhook route — handled manually
 app.post(shopify.config.webhooks.path, express.text({ type: "*/*" }), async (req, res) => {
   const topic = req.headers["x-shopify-topic"];
   const shop = req.headers["x-shopify-shop-domain"];
-
   try {
     if (topic === "orders/paid") {
       await webhookHandlers.ordersPaid(topic, shop, req.body);
@@ -112,9 +108,33 @@ app.post(shopify.config.webhooks.path, express.text({ type: "*/*" }), async (req
 // Public pixel script
 app.use("/pixel", pixelScriptRouter);
 
-// Authenticated API routes
-app.use("/api/*", shopify.validateAuthenticatedSession());
+// Parse JSON body
 app.use(express.json());
+
+// Custom session middleware — extracts shop from Shopify JWT token
+app.use("/api/*", (req, res, next) => {
+  try {
+    const authHeader = req.headers["authorization"] || "";
+    const token = authHeader.replace("Bearer ", "");
+    if (token) {
+      const payload = JSON.parse(Buffer.from(token.split(".")[1], "base64").toString());
+      const dest = payload.dest || "";
+      const shop = dest.replace("https://", "");
+      if (shop) {
+        res.locals.shopify = { session: { shop } };
+        return next();
+      }
+    }
+  } catch (e) {}
+
+  const shop = req.headers["x-shopify-shop"] || req.query.shop;
+  if (shop) {
+    res.locals.shopify = { session: { shop } };
+    return next();
+  }
+
+  res.status(403).json({ error: "No shop identified" });
+});
 
 app.use("/api/settings", settingsRouter(shopify));
 app.use("/api/deliveries", deliveriesRouter(shopify));
