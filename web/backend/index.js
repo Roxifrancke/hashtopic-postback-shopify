@@ -28,6 +28,11 @@ const shopify = shopifyApp({
     restResources: {},
     billing: undefined,
   },
+  hostName: process.env.SHOPIFY_APP_URL ? process.env.SHOPIFY_APP_URL.replace(/https:\/\//, "") : "",
+  auth: {
+    path: "/api/auth",
+    callbackPath: "/api/auth/callback",
+  },
   auth: {
     path: "/api/auth",
     callbackPath: "/api/auth/callback",
