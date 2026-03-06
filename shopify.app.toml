@@ -14,10 +14,6 @@ redirect_urls = [
 [webhooks]
 api_version = "2024-01"
 
-  [[webhooks.subscriptions]]
-  topics = ["orders/paid", "orders/updated"]
-  uri = "/api/webhooks"
-
 [pos]
 embedded = false
 
