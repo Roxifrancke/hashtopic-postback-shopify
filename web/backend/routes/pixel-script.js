@@ -68,19 +68,36 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
   function getCookie(name) {
     try {
       var match = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
-      return match ? decodeURIComponent(match[1]) : null;
+      return match ? decodeURIComponent(match[2]) : null;
     } catch(e) { return null; }
   }
 
-  function run() {
-    // Capture from URL (priority)
-    var fromUrl = getUrlParam(PARAM_NAMES);
-    if (fromUrl) {
-      setCookie(COOKIE_NAME, fromUrl, COOKIE_DAYS);
-      return;
-    }
-    // Otherwise read existing cookie (no action needed)
+function syncToCart(clickId) {
+  try {
+    var body = JSON.stringify({
+      attributes: { _ht_click_id: clickId }
+    });
+    fetch('/cart/update.js', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body
+    });
+  } catch(e) {}
+}
+
+function run() {
+  var fromUrl = getUrlParam(PARAM_NAMES);
+  if (fromUrl) {
+    setCookie(COOKIE_NAME, fromUrl, COOKIE_DAYS);
+    syncToCart(fromUrl);    // ← write to cart attributes
+    return;
   }
+  // No click_id in URL — check if cookie exists and sync it
+  var existing = getCookie(COOKIE_NAME);
+  if (existing) {
+    syncToCart(existing);   // ← visitor has cookie from a previous page
+  }
+}
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', run);
