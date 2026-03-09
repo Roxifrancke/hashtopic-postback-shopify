@@ -53,6 +53,38 @@ export default function settingsRouter(shopify) {
       }
 
       saveSettings(shop, body);
+
+      // After saveSettings(shop, body) succeeds:
+ 
+      try {
+        const appUrl = process.env.SHOPIFY_APP_URL || 'https://hashtopic-postback-shopify.onrender.com';
+        const scriptSrc = `${appUrl}/pixel/${shop}/capture.js`;
+       
+        // Get existing script tags to avoid duplicates
+        const session = res.locals.shopify.session;
+        const client = new shopify.api.clients.Rest({ session });
+       
+        const existing = await client.get({ path: 'script_tags' });
+        const tags = existing.body?.script_tags || [];
+        const ours = tags.find(t => t.src.includes('/pixel/') && t.src.includes('/capture.js'));
+       
+        if (!ours) {
+          await client.post({
+            path: 'script_tags',
+            data: {
+              script_tag: {
+                event: 'onload',
+                src: scriptSrc,
+                display_scope: 'online_store'
+              }
+            }
+          });
+        }
+      } catch (err) {
+        console.error('[HT] ScriptTag registration failed:', err);
+        // Non-fatal — settings still saved, just log the error
+      }
+      
       const saved = getSettings(shop);
 
       return res.json({
