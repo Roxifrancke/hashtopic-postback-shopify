@@ -43,7 +43,7 @@ const shopify = shopifyApp({
   webhooks: {
     path: "/api/webhooks",
   },
-  sessionStorage: new SQLiteSessionStorage(":memory:"),
+  sessionStorage: new SQLiteSessionStorage("./sessions.sqlite"),
 });
 
 const app = express();
