@@ -17,29 +17,31 @@ export function buildPayload(shop, order, settings) {
     0
   );
 
-  return {
+return {
+  click_id: clickId || null,
+  order_id: String(order.id),
+  order_total: parseFloat(order.total_price || 0),
+  currency: order.currency || "USD",
+  test: Boolean(settings?.test_mode),
+  metadata: {
     event: "purchase",
-    event_time: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
-    click_id: clickId || null,
-    order_id: String(order.id),
+    event_time: new Date().toISOString(),
     order_number: String(order.name || order.order_number || order.id),
     order_status: order.financial_status || "paid",
-    currency: order.currency || "USD",
-    order_total: parseFloat(order.total_price || 0),
     shipping_total: parseFloat(order.total_shipping_price_set?.shop_money?.amount || 0),
     tax_total: parseFloat(order.total_tax || 0),
     discount_total: parseFloat(order.total_discounts || 0),
     items_count: itemsCount,
     customer: {
       email: order.email || order.customer?.email || null,
-      phone: order.phone || order.customer?.phone || order.billing_address?.phone || null,
+      phone: order.phone || order.customer?.phone || null,
     },
     store: {
       platform: "shopify",
       site_url: `https://${shop}`,
     },
-    test: Boolean(settings?.test_mode),
-  };
+  },
+};
 }
 
 /**
@@ -47,27 +49,29 @@ export function buildPayload(shop, order, settings) {
  */
 export function buildTestPayload(shop, settings) {
   return {
-    event: "purchase",
-    event_time: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
     click_id: `test_click_${Math.random().toString(36).slice(2, 10)}`,
     order_id: "0",
-    order_number: "TEST-0",
-    order_status: "paid",
-    currency: "USD",
     order_total: 99.99,
-    shipping_total: 5.0,
-    tax_total: 8.5,
-    discount_total: 0.0,
-    items_count: 1,
-    customer: {
-      email: null,
-      phone: null,
-    },
-    store: {
-      platform: "shopify",
-      site_url: `https://${shop}`,
-    },
+    currency: "USD",
     test: true,
+    metadata: {
+      event: "purchase",
+      event_time: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+      order_number: "TEST-0",
+      order_status: "paid",
+      shipping_total: 5.0,
+      tax_total: 8.5,
+      discount_total: 0.0,
+      items_count: 1,
+      customer: {
+        email: null,
+        phone: null,
+      },
+      store: {
+        platform: "shopify",
+        site_url: `https://${shop}`,
+      },
+    },
   };
 }
 
