@@ -4,7 +4,7 @@ application_url = "https://hashtopic-postback-shopify.onrender.com"
 embedded = true
 
 [access_scopes]
-scopes = "read_orders,read_customers"
+scopes = "read_orders,read_customers,write_script_tags"
 
 [auth]
 redirect_urls = [
