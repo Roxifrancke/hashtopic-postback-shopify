@@ -20,7 +20,8 @@ db.exec(`
     cookie_days  INTEGER NOT NULL DEFAULT 30,
     debug        INTEGER NOT NULL DEFAULT 0,
     test_mode    INTEGER NOT NULL DEFAULT 0,
-    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    access_token TEXT NOT NULL DEFAULT ''
   );
 
   CREATE TABLE IF NOT EXISTS deliveries (
@@ -91,6 +92,22 @@ export function saveSettings(shop, data) {
     test_mode: data.test_mode ? 1 : 0,
   });
   return getSettings(shop);
+}
+
+export function saveAccessToken(shop, accessToken) {
+  // Ensure a settings row exists first
+  db.prepare(`
+    INSERT OR IGNORE INTO settings (shop) VALUES (?)
+  `).run(shop);
+ 
+  db.prepare(`
+    UPDATE settings SET access_token = ?, updated_at = datetime('now') WHERE shop = ?
+  `).run(accessToken, shop);
+}
+ 
+export function getAccessToken(shop) {
+  const row = db.prepare("SELECT access_token FROM settings WHERE shop = ?").get(shop);
+  return row?.access_token || null;
 }
 
 // ── Deliveries helpers ───────────────────────────────────────────────────────
