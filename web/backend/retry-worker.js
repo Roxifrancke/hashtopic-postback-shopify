@@ -57,26 +57,27 @@ async function retryDelivery(delivery) {
 }
 
 function buildRetryPayload(delivery, settings) {
-  // Minimal retry payload — in production, store/retrieve full payload JSON
   return {
-    event: "purchase",
-    event_time: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
     click_id: null,
     order_id: delivery.order_id,
-    order_number: delivery.order_name || delivery.order_id,
-    order_status: "paid",
-    currency: "USD",
     order_total: 0,
-    shipping_total: 0,
-    tax_total: 0,
-    discount_total: 0,
-    items_count: 0,
-    customer: { email: null, phone: null },
-    store: {
-      platform: "shopify",
-      site_url: `https://${delivery.shop}`,
-    },
+    currency: "USD",
     test: Boolean(settings.test_mode),
-    _retry: true,
+    metadata: {
+      event: "purchase",
+      event_time: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+      order_number: delivery.order_name || delivery.order_id,
+      order_status: "paid",
+      shipping_total: 0,
+      tax_total: 0,
+      discount_total: 0,
+      items_count: 0,
+      customer: { email: null, phone: null },
+      store: {
+        platform: "shopify",
+        site_url: `https://${delivery.shop}`,
+      },
+      _retry: true,
+    },
   };
 }
