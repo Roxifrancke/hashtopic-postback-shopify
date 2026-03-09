@@ -61,10 +61,11 @@ router.post("/", async (req, res) => {
       const scriptSrc = `${appUrl}/pixel/${shop}/capture.js`;
  
       // Load the offline session that has the access token
-      const sessionId = shopify.api.session.getOfflineId(shop);
-      const session = await shopify.config.sessionStorage.loadSession(sessionId);
- 
-      if (session?.accessToken) {
+      const { getAccessToken } = await import("../db.js");
+      const accessToken = getAccessToken(shop);
+       
+      if (accessToken) {
+        const session = { shop, accessToken };
         const client = new shopify.api.clients.Rest({ session });
  
         // Check if our script tag already exists
