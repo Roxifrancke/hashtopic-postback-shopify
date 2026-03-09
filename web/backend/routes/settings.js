@@ -41,70 +41,80 @@ export default function settingsRouter(shopify) {
     }
   });
 
-  // POST /api/settings
-  router.post("/", async (req, res) => {
-    try {
-      const shop = res.locals.shopify.session.shop;
-      const body = req.body;
-
-      // Validate webhook URL must be https
-      if (body.webhook_url && !body.webhook_url.startsWith("https://")) {
-        return res.status(400).json({ error: "Webhook URL must start with https://" });
-      }
-
-      saveSettings(shop, body);
-
-      // After saveSettings(shop, body) succeeds:
+// POST /api/settings
+router.post("/", async (req, res) => {
+  try {
+    const shop = res.locals.shopify.session.shop;
+    const body = req.body;
  
-      try {
-        const appUrl = process.env.SHOPIFY_APP_URL || 'https://hashtopic-postback-shopify.onrender.com';
-        const scriptSrc = `${appUrl}/pixel/${shop}/capture.js`;
-       
-        // Get existing script tags to avoid duplicates
-        const session = res.locals.shopify.session;
+    // Validate webhook URL must be https
+    if (body.webhook_url && !body.webhook_url.startsWith("https://")) {
+      return res.status(400).json({ error: "Webhook URL must start with https://" });
+    }
+ 
+    saveSettings(shop, body);
+    const saved = getSettings(shop);
+ 
+    // Auto-register ScriptTag for capture.js
+    try {
+      const appUrl = process.env.SHOPIFY_APP_URL || "https://hashtopic-postback-shopify.onrender.com";
+      const scriptSrc = `${appUrl}/pixel/${shop}/capture.js`;
+ 
+      // Load the offline session that has the access token
+      const sessionId = shopify.api.session.getOfflineId(shop);
+      const session = await shopify.config.sessionStorage.loadSession(sessionId);
+ 
+      if (session?.accessToken) {
         const client = new shopify.api.clients.Rest({ session });
-       
-        const existing = await client.get({ path: 'script_tags' });
+ 
+        // Check if our script tag already exists
+        const existing = await client.get({ path: "script_tags" });
         const tags = existing.body?.script_tags || [];
-        const ours = tags.find(t => t.src.includes('/pixel/') && t.src.includes('/capture.js'));
-       
+        const ours = tags.find(
+          (t) => t.src.includes("/pixel/") && t.src.includes("/capture.js")
+        );
+ 
         if (!ours) {
           await client.post({
-            path: 'script_tags',
+            path: "script_tags",
             data: {
               script_tag: {
-                event: 'onload',
+                event: "onload",
                 src: scriptSrc,
-                display_scope: 'online_store'
-              }
-            }
+                display_scope: "online_store",
+              },
+            },
           });
+          console.log(`[HT] ScriptTag registered for ${shop}`);
+        } else {
+          console.log(`[HT] ScriptTag already exists for ${shop}`);
         }
-      } catch (err) {
-        console.error('[HT] ScriptTag registration failed:', err);
-        // Non-fatal — settings still saved, just log the error
+      } else {
+        console.warn(`[HT] No access token found for ${shop} — ScriptTag not registered`);
       }
-      
-      const saved = getSettings(shop);
-
-      return res.json({
-        success: true,
-        settings: {
-          webhook_url: saved.webhook_url,
-          has_secret: Boolean(saved.webhook_secret),
-          paid_statuses: saved.paid_statuses,
-          param_names: saved.param_names,
-          cookie_name: saved.cookie_name,
-          cookie_days: saved.cookie_days,
-          debug: saved.debug,
-          test_mode: saved.test_mode,
-        },
-      });
-    } catch (err) {
-      console.error("POST /api/settings error:", err);
-      res.status(500).json({ error: "Failed to save settings." });
+    } catch (scriptErr) {
+      console.error("[HT] ScriptTag registration failed:", scriptErr.message);
+      // Non-fatal — settings still saved
     }
-  });
+ 
+    return res.json({
+      success: true,
+      settings: {
+        webhook_url: saved.webhook_url,
+        has_secret: Boolean(saved.webhook_secret),
+        paid_statuses: saved.paid_statuses,
+        param_names: saved.param_names,
+        cookie_name: saved.cookie_name,
+        cookie_days: saved.cookie_days,
+        debug: saved.debug,
+        test_mode: saved.test_mode,
+      },
+    });
+  } catch (err) {
+    console.error("POST /api/settings error:", err);
+    res.status(500).json({ error: "Failed to save settings." });
+  }
+});
 
   // POST /api/settings/test
   router.post("/test", async (req, res) => {
