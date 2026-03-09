@@ -85,6 +85,20 @@ app.get(shopify.config.auth.path, shopify.auth.begin());
 app.get(
   shopify.config.auth.callbackPath,
   shopify.auth.callback(),
+  async (req, res, next) => {
+    try {
+      // After successful OAuth, grab the session and save the access token
+      const session = res.locals.shopify?.session;
+      if (session?.shop && session?.accessToken) {
+        const { saveAccessToken } = await import("./db.js");
+        saveAccessToken(session.shop, session.accessToken);
+        console.log(`[HT] Access token saved for ${session.shop}`);
+      }
+    } catch (err) {
+      console.error("[HT] Error saving access token:", err.message);
+    }
+    next();
+  },
   shopify.redirectToShopifyOrAppRoot()
 );
 
