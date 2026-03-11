@@ -93,6 +93,11 @@ app.get(
         const { saveAccessToken } = await import("./db.js");
         saveAccessToken(session.shop, session.accessToken);
         console.log(`[HT] Access token saved for ${session.shop}`);
+
+        // Auto-enable the Click ID Capture app embed in the active theme
+        enableClickIdEmbed(session.shop, session.accessToken).catch((err) =>
+          console.error("[HT] Failed to auto-enable app embed:", err.message)
+        );
       }
     } catch (err) {
       console.error("[HT] Error saving access token:", err.message);
@@ -101,6 +106,84 @@ app.get(
   },
   shopify.redirectToShopifyOrAppRoot()
 );
+
+/**
+ * Programmatically activates the Click ID Capture app embed block in the
+ * merchant's currently-active theme by patching config/settings_data.json.
+ *
+ * Block type URL format:
+ *   shopify://apps/{app-handle}/blocks/{block-handle}
+ *
+ * Replace APP_HANDLE below with your app's handle from the Partners dashboard
+ * (Partners → Apps → your app → "App handle" field, e.g. "hashtopic-postback").
+ */
+async function enableClickIdEmbed(shop, accessToken) {
+  const APP_HANDLE = process.env.SHOPIFY_APP_HANDLE || "hashtopic-postback-4";
+  const BLOCK_HANDLE = "click-id-capture";
+  const API_VERSION = "2024-01";
+  const headers = {
+    "X-Shopify-Access-Token": accessToken,
+    "Content-Type": "application/json",
+  };
+
+  // 1. Find the active (main) theme
+  const themesRes = await fetch(
+    `https://${shop}/admin/api/${API_VERSION}/themes.json`,
+    { headers }
+  );
+  if (!themesRes.ok) throw new Error(`themes fetch failed: ${themesRes.status}`);
+  const { themes } = await themesRes.json();
+  const activeTheme = themes.find((t) => t.role === "main");
+  if (!activeTheme) {
+    console.warn("[HT] No active theme found for", shop);
+    return;
+  }
+
+  // 2. Fetch config/settings_data.json from that theme
+  const assetUrl =
+    `https://${shop}/admin/api/${API_VERSION}/themes/${activeTheme.id}/assets.json` +
+    `?asset[key]=config/settings_data.json`;
+  const assetRes = await fetch(assetUrl, { headers });
+  if (!assetRes.ok) throw new Error(`asset fetch failed: ${assetRes.status}`);
+  const { asset } = await assetRes.json();
+  const settingsData = JSON.parse(asset.value);
+
+  // 3. Check if the embed is already present and enabled
+  const blockType = `shopify://apps/${APP_HANDLE}/blocks/${BLOCK_HANDLE}`;
+  const blocks = settingsData.current.blocks || {};
+  const alreadyEnabled = Object.values(blocks).some(
+    (b) => b.type === blockType && b.disabled !== true
+  );
+  if (alreadyEnabled) {
+    console.log(`[HT] App embed already enabled for ${shop}`);
+    return;
+  }
+
+  // 4. Remove any existing (disabled) entry for this block type, then add fresh
+  for (const key of Object.keys(blocks)) {
+    if (blocks[key].type === blockType) delete blocks[key];
+  }
+  const uuid = crypto.randomUUID();
+  blocks[`${blockType}/${uuid}`] = { type: blockType, disabled: false, settings: {} };
+  settingsData.current.blocks = blocks;
+
+  // 5. Write back
+  const putRes = await fetch(
+    `https://${shop}/admin/api/${API_VERSION}/themes/${activeTheme.id}/assets.json`,
+    {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({
+        asset: { key: "config/settings_data.json", value: JSON.stringify(settingsData) },
+      }),
+    }
+  );
+  if (!putRes.ok) {
+    const body = await putRes.text();
+    throw new Error(`asset PUT failed ${putRes.status}: ${body}`);
+  }
+  console.log(`[HT] App embed enabled in theme "${activeTheme.name}" for ${shop}`);
+}
 
 // Webhook route — handled manually
 app.post(shopify.config.webhooks.path, express.text({ type: "*/*" }), async (req, res) => {

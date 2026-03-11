@@ -1,0 +1,9 @@
+api_version = "2024-01"
+
+[[extensions]]
+
+uid = "e3a89730-194e-11e9-b916-79fd4bbc406e33142c8d"
+
+type = "theme_app_extension"
+name = "Click ID Capture"
+handle = "click-id-capture"
