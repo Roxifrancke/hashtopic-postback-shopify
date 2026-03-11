@@ -3,15 +3,41 @@
   try {
     var params = new URLSearchParams(window.location.search);
     var clickId = params.get('click_id');
-    if (clickId) {
+
+    function setCookie(value) {
       var expires = new Date();
       expires.setTime(expires.getTime() + 30 * 24 * 60 * 60 * 1000);
       document.cookie =
         '_ht_click_id=' +
-        encodeURIComponent(clickId) +
+        encodeURIComponent(value) +
         '; expires=' + expires.toUTCString() +
         '; path=/' +
         '; SameSite=Lax';
+    }
+
+    function getCookie() {
+      var match = document.cookie.match(/(^|; )_ht_click_id=([^;]*)/);
+      return match ? decodeURIComponent(match[2]) : null;
+    }
+
+    function syncToCart(value) {
+      try {
+        fetch('/cart/update.js', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ attributes: { _ht_click_id: value } })
+        });
+      } catch (e) {}
+    }
+
+    if (clickId) {
+      setCookie(clickId);
+      syncToCart(clickId);
+    } else {
+      var existing = getCookie();
+      if (existing) {
+        syncToCart(existing);
+      }
     }
   } catch (e) {}
 })();

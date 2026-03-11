@@ -82,7 +82,6 @@ router.post("/", async (req, res) => {
               script_tag: {
                 event: "onload",
                 src: scriptSrc,
-                display_scope: "online_store",
               },
             },
           });
