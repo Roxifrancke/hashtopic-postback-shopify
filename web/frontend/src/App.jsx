@@ -16,14 +16,12 @@ export default function App() {
           {
             label: "Settings",
             icon: SettingsIcon,
-            url: "/",
             onClick: () => navigate("/"),
             selected: location.pathname === "/",
           },
           {
             label: "Deliveries",
             icon: OrderIcon,
-            url: "/deliveries",
             onClick: () => navigate("/deliveries"),
             selected: location.pathname === "/deliveries",
           },

@@ -1,23 +1,43 @@
 import { useCallback } from "react";
 
-// Capture params once on initial load before React Router clears them
+// Capture shop from initial load as a reliable fallback
 const initialParams = new URLSearchParams(window.location.search);
-const INITIAL_TOKEN = initialParams.get("id_token") || "";
 const INITIAL_SHOP = initialParams.get("shop") || "";
 
 export function useAuthenticatedFetch() {
-  return useCallback((uri, options = {}) => {
-    // Use stored initial values so navigation doesn't lose them
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get("id_token") || INITIAL_TOKEN;
-    const shop = params.get("shop") || INITIAL_SHOP;
+  return useCallback(async (uri, options = {}) => {
+    let token = "";
+    let shop = INITIAL_SHOP;
+
+    // Preferred: get a fresh session token from App Bridge (never expires mid-request)
+    if (window.shopify?.idToken) {
+      try {
+        token = await window.shopify.idToken();
+      } catch (e) {
+        console.warn("[HT] App Bridge idToken() failed, falling back to URL params:", e);
+      }
+    }
+
+    // Fallback: read from current URL params
+    if (!token) {
+      const params = new URLSearchParams(window.location.search);
+      token = params.get("id_token") || "";
+    }
+
+    // Extract shop from token if we don't have it yet
+    if (!shop && token) {
+      try {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        shop = (payload.dest || "").replace("https://", "");
+      } catch (e) {}
+    }
 
     return fetch(uri, {
       ...options,
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`,
-        "X-Shopify-Shop": shop,
+        ...(token && { "Authorization": `Bearer ${token}` }),
+        ...(shop && { "X-Shopify-Shop": shop }),
         ...options.headers,
       },
     });
