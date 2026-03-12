@@ -1,36 +1,57 @@
 import { useCallback } from "react";
 
-// Capture shop from initial load as a reliable fallback
-const initialParams = new URLSearchParams(window.location.search);
-const INITIAL_SHOP = initialParams.get("shop") || "";
+// On every page load, check URL for fresh token/shop and persist to sessionStorage.
+// This survives SPA navigation and even full page reloads within the same tab.
+(function persistParams() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get("id_token");
+  const shop = params.get("shop");
+  if (token) sessionStorage.setItem("ht_id_token", token);
+  if (shop) sessionStorage.setItem("ht_shop", shop);
+})();
+
+function getToken() {
+  // 1. Check current URL (freshest)
+  const params = new URLSearchParams(window.location.search);
+  const fromUrl = params.get("id_token");
+  if (fromUrl) {
+    sessionStorage.setItem("ht_id_token", fromUrl);
+    return fromUrl;
+  }
+  // 2. Fall back to sessionStorage
+  return sessionStorage.getItem("ht_id_token") || "";
+}
+
+function getShop() {
+  const params = new URLSearchParams(window.location.search);
+  const fromUrl = params.get("shop");
+  if (fromUrl) {
+    sessionStorage.setItem("ht_shop", fromUrl);
+    return fromUrl;
+  }
+  // Try sessionStorage first
+  const shop = sessionStorage.getItem("ht_shop");
+  if (shop) return shop;
+
+  // Extract from stored token as last resort
+  const token = getToken();
+  if (token) {
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      const dest = (payload.dest || "").replace("https://", "");
+      if (dest) {
+        sessionStorage.setItem("ht_shop", dest);
+        return dest;
+      }
+    } catch (e) {}
+  }
+  return "";
+}
 
 export function useAuthenticatedFetch() {
-  return useCallback(async (uri, options = {}) => {
-    let token = "";
-    let shop = INITIAL_SHOP;
-
-    // Preferred: get a fresh session token from App Bridge (never expires mid-request)
-    if (window.shopify?.idToken) {
-      try {
-        token = await window.shopify.idToken();
-      } catch (e) {
-        console.warn("[HT] App Bridge idToken() failed, falling back to URL params:", e);
-      }
-    }
-
-    // Fallback: read from current URL params
-    if (!token) {
-      const params = new URLSearchParams(window.location.search);
-      token = params.get("id_token") || "";
-    }
-
-    // Extract shop from token if we don't have it yet
-    if (!shop && token) {
-      try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
-        shop = (payload.dest || "").replace("https://", "");
-      } catch (e) {}
-    }
+  return useCallback((uri, options = {}) => {
+    const token = getToken();
+    const shop = getShop();
 
     return fetch(uri, {
       ...options,
