@@ -54,49 +54,7 @@ router.post("/", async (req, res) => {
  
     saveSettings(shop, body);
     const saved = getSettings(shop);
- 
-    // Auto-register ScriptTag for capture.js
-    try {
-      const appUrl = process.env.SHOPIFY_APP_URL || "https://hashtopic-postback-shopify.onrender.com";
-      const scriptSrc = `${appUrl}/pixel/${shop}/capture.js`;
- 
-      // Load the offline session that has the access token
-      const { getAccessToken } = await import("../db.js");
-      const accessToken = getAccessToken(shop);
-       
-      if (accessToken) {
-        const session = { shop, accessToken };
-        const client = new shopify.api.clients.Rest({ session });
- 
-        // Check if our script tag already exists
-        const existing = await client.get({ path: "script_tags" });
-        const tags = existing.body?.script_tags || [];
-        const ours = tags.find(
-          (t) => t.src.includes("/pixel/") && t.src.includes("/capture.js")
-        );
- 
-        if (!ours) {
-          await client.post({
-            path: "script_tags",
-            data: {
-              script_tag: {
-                event: "onload",
-                src: scriptSrc,
-              },
-            },
-          });
-          console.log(`[HT] ScriptTag registered for ${shop}`);
-        } else {
-          console.log(`[HT] ScriptTag already exists for ${shop}`);
-        }
-      } else {
-        console.warn(`[HT] No access token found for ${shop} — ScriptTag not registered`);
-      }
-    } catch (scriptErr) {
-      console.error("[HT] ScriptTag registration failed:", scriptErr.message);
-      // Non-fatal — settings still saved
-    }
- 
+
     return res.json({
       success: true,
       settings: {
