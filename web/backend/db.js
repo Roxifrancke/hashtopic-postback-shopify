@@ -20,8 +20,9 @@ db.exec(`
     cookie_days  INTEGER NOT NULL DEFAULT 30,
     debug        INTEGER NOT NULL DEFAULT 0,
     test_mode    INTEGER NOT NULL DEFAULT 0,
-    updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
-    access_token TEXT NOT NULL DEFAULT ''
+    mystorefront_api_key TEXT NOT NULL DEFAULT '',
+    shopify_admin_token  TEXT NOT NULL DEFAULT '',
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
   CREATE TABLE IF NOT EXISTS deliveries (
@@ -54,32 +55,45 @@ export function getSettings(shop) {
     paid_statuses: JSON.parse(row.paid_statuses || '["paid"]'),
     debug: Boolean(row.debug),
     test_mode: Boolean(row.test_mode),
+    mystorefront_api_key: row.mystorefront_api_key || "",
+    shopify_admin_token: row.shopify_admin_token || "",
   };
 }
 
 export function saveSettings(shop, data) {
   const existing = getSettings(shop);
-  // Never overwrite secret with empty string (protect existing secret)
   const secret =
     data.webhook_secret && data.webhook_secret.trim()
       ? data.webhook_secret.trim()
       : existing?.webhook_secret || "";
 
+  const msApiKey =
+    data.mystorefront_api_key && data.mystorefront_api_key.trim()
+      ? data.mystorefront_api_key.trim()
+      : existing?.mystorefront_api_key || "";
+
+  const adminToken =
+    data.shopify_admin_token && data.shopify_admin_token.trim()
+      ? data.shopify_admin_token.trim()
+      : existing?.shopify_admin_token || "";
+
   db.prepare(`
     INSERT INTO settings (shop, webhook_url, webhook_secret, paid_statuses, param_names,
-      cookie_name, cookie_days, debug, test_mode, updated_at)
+      cookie_name, cookie_days, debug, test_mode, mystorefront_api_key, shopify_admin_token, updated_at)
     VALUES (@shop, @webhook_url, @webhook_secret, @paid_statuses, @param_names,
-      @cookie_name, @cookie_days, @debug, @test_mode, datetime('now'))
+      @cookie_name, @cookie_days, @debug, @test_mode, @mystorefront_api_key, @shopify_admin_token, datetime('now'))
     ON CONFLICT(shop) DO UPDATE SET
-      webhook_url    = excluded.webhook_url,
-      webhook_secret = excluded.webhook_secret,
-      paid_statuses  = excluded.paid_statuses,
-      param_names    = excluded.param_names,
-      cookie_name    = excluded.cookie_name,
-      cookie_days    = excluded.cookie_days,
-      debug          = excluded.debug,
-      test_mode      = excluded.test_mode,
-      updated_at     = datetime('now')
+      webhook_url          = excluded.webhook_url,
+      webhook_secret       = excluded.webhook_secret,
+      paid_statuses        = excluded.paid_statuses,
+      param_names          = excluded.param_names,
+      cookie_name          = excluded.cookie_name,
+      cookie_days          = excluded.cookie_days,
+      debug                = excluded.debug,
+      test_mode            = excluded.test_mode,
+      mystorefront_api_key = excluded.mystorefront_api_key,
+      shopify_admin_token  = excluded.shopify_admin_token,
+      updated_at           = datetime('now')
   `).run({
     shop,
     webhook_url: data.webhook_url || "",
@@ -87,27 +101,13 @@ export function saveSettings(shop, data) {
     paid_statuses: JSON.stringify(data.paid_statuses || ["paid"]),
     param_names: data.param_names || "click_id",
     cookie_name: data.cookie_name || "_ht_click_id",
-    cookie_days: parseInt(data.cookie_days, 10) || 30,
+    cookie_days: Math.min(365, Math.max(1, parseInt(data.cookie_days, 10) || 30)),
     debug: data.debug ? 1 : 0,
     test_mode: data.test_mode ? 1 : 0,
+    mystorefront_api_key: msApiKey,
+    shopify_admin_token: adminToken,
   });
   return getSettings(shop);
-}
-
-export function saveAccessToken(shop, accessToken) {
-  // Ensure a settings row exists first
-  db.prepare(`
-    INSERT OR IGNORE INTO settings (shop) VALUES (?)
-  `).run(shop);
- 
-  db.prepare(`
-    UPDATE settings SET access_token = ?, updated_at = datetime('now') WHERE shop = ?
-  `).run(accessToken, shop);
-}
- 
-export function getAccessToken(shop) {
-  const row = db.prepare("SELECT access_token FROM settings WHERE shop = ?").get(shop);
-  return row?.access_token || null;
 }
 
 // ── Deliveries helpers ───────────────────────────────────────────────────────
