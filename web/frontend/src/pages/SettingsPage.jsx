@@ -27,7 +27,6 @@ const DEFAULT_SETTINGS = {
   has_mystorefront_api_key: false,
   mystorefront_api_key: "",
   has_shopify_admin_token: false,
-  shopify_admin_token: "",
 };
 
 export default function SettingsPage() {
@@ -52,7 +51,6 @@ export default function SettingsPage() {
         ...DEFAULT_SETTINGS,
         ...data,
         webhook_secret: "",
-        shopify_admin_token: "",
         cookie_days: String(data.cookie_days || 30),
       });
       const url = new URL(window.location.href);
@@ -98,7 +96,6 @@ export default function SettingsPage() {
           ...prev,
           ...data.settings,
           webhook_secret: "",
-          shopify_admin_token: "",
           cookie_days: String(data.settings.cookie_days),
         }));
         setSaveResult({ type: "success", message: "Settings saved successfully." });
@@ -234,19 +231,24 @@ export default function SettingsPage() {
           <Card>
             <BlockStack gap="500">
 
-              {/* Shopify Admin API Token */}
+              {/* Shopify Admin API Token — set automatically via OAuth, no manual input needed */}
               <BlockStack gap="200">
-                <Text variant="bodyMd" fontWeight="semibold">Shopify Admin API Token</Text>
-                <TextField
-                  label="Admin API Token"
-                  labelHidden
-                  value={settings.shopify_admin_token}
-                  onChange={(v) => setSettings((p) => ({ ...p, shopify_admin_token: v }))}
-                  type="password"
-                  placeholder={settings.has_shopify_admin_token ? "Token saved — enter new value to change" : "shpat_..."}
-                  autoComplete="new-password"
-                  helpText="In Shopify Admin go to Apps → Develop apps → Create an app. Add read_price_rules and write_price_rules scopes. Paste the Admin API access token here."
-                />
+                <Text variant="bodyMd" fontWeight="semibold">Shopify API Access</Text>
+                {settings.has_shopify_admin_token ? (
+                  <InlineStack gap="200" blockAlign="center">
+                    <Badge status="success">Connected</Badge>
+                    <Text variant="bodySm" color="subdued">
+                      Shopify granted access automatically when you installed the app. Discount code sync is ready.
+                    </Text>
+                  </InlineStack>
+                ) : (
+                  <InlineStack gap="200" blockAlign="center">
+                    <Badge status="warning">Not connected</Badge>
+                    <Text variant="bodySm" color="subdued">
+                      Reinstall the app from the Shopify App Store to grant discount code access automatically.
+                    </Text>
+                  </InlineStack>
+                )}
               </BlockStack>
 
               <Divider />
