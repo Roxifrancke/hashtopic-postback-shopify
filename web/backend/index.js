@@ -100,15 +100,20 @@ app.get(
   shopify.auth.callback(),
   async (req, res, next) => {
     try {
+      // After successful OAuth, grab the session and save the access token
       const session = res.locals.shopify?.session;
       if (session?.shop && session?.accessToken) {
+        const { saveAccessToken } = await import("./db.js");
+        saveAccessToken(session.shop, session.accessToken);
+        console.log(`[HT] Access token saved for ${session.shop}`);
+
         // Auto-enable the Click ID Capture app embed in the active theme
         enableClickIdEmbed(session.shop, session.accessToken).catch((err) =>
           console.error("[HT] Failed to auto-enable app embed:", err.message)
         );
       }
     } catch (err) {
-      console.error("[HT] Error in auth callback:", err.message);
+      console.error("[HT] Error saving access token:", err.message);
     }
     next();
   },
@@ -118,6 +123,12 @@ app.get(
 /**
  * Programmatically activates the Click ID Capture app embed block in the
  * merchant's currently-active theme by patching config/settings_data.json.
+ *
+ * Block type URL format:
+ *   shopify://apps/{app-handle}/blocks/{block-handle}
+ *
+ * Replace APP_HANDLE below with your app's handle from the Partners dashboard
+ * (Partners → Apps → your app → "App handle" field, e.g. "hashtopic-postback").
  */
 async function enableClickIdEmbed(shop, accessToken) {
   const APP_HANDLE = process.env.SHOPIFY_APP_HANDLE || "hashtopic-postback-4";
