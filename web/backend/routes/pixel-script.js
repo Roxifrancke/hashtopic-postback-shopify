@@ -7,6 +7,7 @@ export const pixelScriptRouter = Router();
  * GET /pixel/:shop/capture.js
  * Serves a shop-specific JavaScript snippet that captures click_id from URL
  * and stores it in a first-party cookie.
+ * This is loaded by the Shopify theme via Script Tag or Web Pixel.
  */
 pixelScriptRouter.get("/:shop/capture.js", (req, res) => {
   const shop = req.params.shop;
@@ -66,7 +67,7 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
 
   function getCookie(name) {
     try {
-      var match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\$&') + '=([^;]*)'));
+      var match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + '=([^;]*)'));
       return match ? decodeURIComponent(match[1]) : null;
     } catch(e) { return null; }
   }
