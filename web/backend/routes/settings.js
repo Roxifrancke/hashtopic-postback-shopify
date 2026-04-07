@@ -51,6 +51,7 @@ export default function settingsRouter(shopify) {
           test_mode: false,
           has_mystorefront_api_key: false,
           mystorefront_api_key: "",
+          // Admin token is set automatically via OAuth — never exposed to frontend
           has_shopify_admin_token: false,
         });
       }
@@ -66,6 +67,7 @@ export default function settingsRouter(shopify) {
         test_mode: s.test_mode,
         has_mystorefront_api_key: Boolean(s.mystorefront_api_key),
         mystorefront_api_key: s.mystorefront_api_key || "",
+        // Admin token is set automatically via OAuth — never exposed to frontend
         has_shopify_admin_token: Boolean(s.shopify_admin_token),
       });
     } catch (err) {
@@ -78,7 +80,10 @@ export default function settingsRouter(shopify) {
   router.post("/", async (req, res) => {
     try {
       const shop = res.locals.shopify.session.shop;
-      const body = req.body;
+
+      // Strip shopify_admin_token from body — it must never be set via the frontend.
+      // It is set automatically when the merchant installs/reinstalls the app via OAuth.
+      const { shopify_admin_token: _ignored, ...body } = req.body;
 
       if (body.webhook_url && !body.webhook_url.startsWith("https://")) {
         return res.status(400).json({ error: "Webhook URL must start with https://" });
