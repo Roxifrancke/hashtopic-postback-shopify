@@ -7,7 +7,6 @@ export const pixelScriptRouter = Router();
  * GET /pixel/:shop/capture.js
  * Serves a shop-specific JavaScript snippet that captures click_id from URL
  * and stores it in a first-party cookie.
- * This is loaded by the Shopify theme via Script Tag or Web Pixel.
  */
 pixelScriptRouter.get("/:shop/capture.js", (req, res) => {
   const shop = req.params.shop;
@@ -21,7 +20,7 @@ pixelScriptRouter.get("/:shop/capture.js", (req, res) => {
     .map((s) => s.trim())
     .filter(Boolean);
   const cookieName = settings?.cookie_name || "_ht_click_id";
-  const cookieDays = parseInt(settings?.cookie_days || 30, 10);
+  const cookieDays = Math.min(365, Math.max(1, parseInt(settings?.cookie_days || 30, 10)));
 
   const script = generateCaptureScript(paramNames, cookieName, cookieDays);
 
@@ -34,7 +33,7 @@ pixelScriptRouter.get("/:shop/capture.js", (req, res) => {
 
 function generateCaptureScript(paramNames, cookieName, cookieDays) {
   return `
-/* HashTopic Postback — Click ID Capture v1.0.0 */
+/* HashTopic Postback — Click ID Capture v1.1.0 */
 (function() {
   'use strict';
 
@@ -67,37 +66,45 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
 
   function getCookie(name) {
     try {
-      var match = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
-      return match ? decodeURIComponent(match[2]) : null;
+      var match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.*+?^${}()|[\\\\]\\\\\\\\]/g, '\\\\\\\\$&') + '=([^;]*)'));
+      return match ? decodeURIComponent(match[1]) : null;
     } catch(e) { return null; }
   }
 
-function syncToCart(clickId) {
-  try {
-    var body = JSON.stringify({
-      attributes: { _ht_click_id: clickId }
-    });
-    fetch('/cart/update.js', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: body
-    });
-  } catch(e) {}
-}
+  /**
+   * Write the click_id into the Shopify cart as a note attribute.
+   * This ensures it appears in order.note_attributes when the order is created,
+   * so the postback sender can read it — even if the cookie isn't accessible
+   * server-side (which it isn't in Shopify's architecture).
+   */
+  function writeToCart(clickId) {
+    try {
+      fetch('/cart/update.js', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          attributes: { '_ht_click_id': clickId }
+        })
+      }).catch(function() {});
+    } catch(e) {}
+  }
 
-function run() {
-  var fromUrl = getUrlParam(PARAM_NAMES);
-  if (fromUrl) {
-    setCookie(COOKIE_NAME, fromUrl, COOKIE_DAYS);
-    syncToCart(fromUrl);    // ← write to cart attributes
-    return;
+  function run() {
+    // 1. Capture from URL (priority — overrides existing cookie)
+    var fromUrl = getUrlParam(PARAM_NAMES);
+    if (fromUrl) {
+      setCookie(COOKIE_NAME, fromUrl, COOKIE_DAYS);
+      writeToCart(fromUrl);
+      return;
+    }
+
+    // 2. No URL param — check for existing cookie and re-write to cart
+    // (handles case where shopper returns on a subsequent page load)
+    var fromCookie = getCookie(COOKIE_NAME);
+    if (fromCookie) {
+      writeToCart(fromCookie);
+    }
   }
-  // No click_id in URL — check if cookie exists and sync it
-  var existing = getCookie(COOKIE_NAME);
-  if (existing) {
-    syncToCart(existing);   // ← visitor has cookie from a previous page
-  }
-}
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', run);
