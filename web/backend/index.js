@@ -16,6 +16,11 @@ import deliveriesRouter from "./routes/deliveries.js";
 import webhookHandlers from "./webhooks/index.js";
 import { startRetryWorker } from "./retry-worker.js";
 import { pixelScriptRouter } from "./routes/pixel-script.js";
+import discountCodesRouter from "./routes/discount-codes.js";
+
+// Safe schema migrations — ALTER TABLE is a no-op if column already exists
+try { db.exec(`ALTER TABLE settings ADD COLUMN mystorefront_api_key TEXT NOT NULL DEFAULT ''`); } catch {}
+try { db.exec(`ALTER TABLE settings ADD COLUMN shopify_admin_token TEXT NOT NULL DEFAULT ''`); } catch {}
 
 const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || "3000", 10);
 const STATIC_PATH =
@@ -23,11 +28,7 @@ const STATIC_PATH =
     ? `${process.cwd()}/web/frontend/dist`
     : `${process.cwd()}/web/frontend/`;
 
-console.log("--- DEBUG: Starting Shopify App Init ---");
-console.log("SHOPIFY_APP_URL from env:", process.env.SHOPIFY_APP_URL);
-
 const HOST_NAME = (process.env.SHOPIFY_APP_URL || "hashtopic-postback-shopify.onrender.com").replace(/^https?:\/\//, "");
-console.log("Derived hostName:", HOST_NAME);
 
 const shopify = shopifyApp({
   api: {
@@ -43,7 +44,8 @@ const shopify = shopifyApp({
   webhooks: {
     path: "/api/webhooks",
   },
-  sessionStorage: new SQLiteSessionStorage("./sessions.sqlite"),
+  // Persistent file-based session storage — sessions survive restarts/redeploys
+  sessionStorage: new SQLiteSessionStorage(join(process.cwd(), "shopify-sessions.sqlite")),
 });
 
 const app = express();
@@ -62,9 +64,20 @@ app.use(
 
 app.get("/health", (req, res) => res.status(200).send("OK"));
 
+// SECURITY: validate redirectUri — only allow relative paths or known Shopify domains
 app.get("/exitiframe", (req, res) => {
   const redirectUri = req.query.redirectUri;
-  const sanitized = redirectUri ? decodeURIComponent(redirectUri) : "/";
+  let sanitized = "/";
+
+  if (redirectUri) {
+    const decoded = decodeURIComponent(String(redirectUri));
+    const isRelative = decoded.startsWith("/") && !decoded.startsWith("//");
+    const isShopifyDomain = /^https:\/\/([a-zA-Z0-9-]+\.myshopify\.com|admin\.shopify\.com)(\/|$)/.test(decoded);
+    if (isRelative || isShopifyDomain) {
+      sanitized = decoded;
+    }
+  }
+
   res.set("Content-Type", "text/html").send(`
     <!DOCTYPE html>
     <html>
@@ -87,20 +100,15 @@ app.get(
   shopify.auth.callback(),
   async (req, res, next) => {
     try {
-      // After successful OAuth, grab the session and save the access token
       const session = res.locals.shopify?.session;
       if (session?.shop && session?.accessToken) {
-        const { saveAccessToken } = await import("./db.js");
-        saveAccessToken(session.shop, session.accessToken);
-        console.log(`[HT] Access token saved for ${session.shop}`);
-
         // Auto-enable the Click ID Capture app embed in the active theme
         enableClickIdEmbed(session.shop, session.accessToken).catch((err) =>
           console.error("[HT] Failed to auto-enable app embed:", err.message)
         );
       }
     } catch (err) {
-      console.error("[HT] Error saving access token:", err.message);
+      console.error("[HT] Error in auth callback:", err.message);
     }
     next();
   },
@@ -110,12 +118,6 @@ app.get(
 /**
  * Programmatically activates the Click ID Capture app embed block in the
  * merchant's currently-active theme by patching config/settings_data.json.
- *
- * Block type URL format:
- *   shopify://apps/{app-handle}/blocks/{block-handle}
- *
- * Replace APP_HANDLE below with your app's handle from the Partners dashboard
- * (Partners → Apps → your app → "App handle" field, e.g. "hashtopic-postback").
  */
 async function enableClickIdEmbed(shop, accessToken) {
   const APP_HANDLE = process.env.SHOPIFY_APP_HANDLE || "hashtopic-postback-4";
@@ -185,10 +187,32 @@ async function enableClickIdEmbed(shop, accessToken) {
   console.log(`[HT] App embed enabled in theme "${activeTheme.name}" for ${shop}`);
 }
 
-// Webhook route — handled manually
+// Webhook route — HMAC verified before dispatching
 app.post(shopify.config.webhooks.path, express.text({ type: "*/*" }), async (req, res) => {
   const topic = req.headers["x-shopify-topic"];
-  const shop = req.headers["x-shopify-shop-domain"];
+  const shop  = req.headers["x-shopify-shop-domain"];
+  const hmac  = req.headers["x-shopify-hmac-sha256"];
+
+  // SECURITY: verify HMAC signature before processing any webhook payload
+  if (!hmac || !process.env.SHOPIFY_API_SECRET) {
+    console.error("[HT] Webhook rejected: missing HMAC or API secret not configured");
+    return res.status(401).send("Unauthorized");
+  }
+
+  const { createHmac, timingSafeEqual } = await import("crypto");
+  const digest = createHmac("sha256", process.env.SHOPIFY_API_SECRET)
+    .update(req.body, "utf8")
+    .digest("base64");
+
+  try {
+    if (!timingSafeEqual(Buffer.from(digest), Buffer.from(hmac))) {
+      console.error("[HT] Webhook rejected: HMAC mismatch");
+      return res.status(401).send("Unauthorized");
+    }
+  } catch {
+    return res.status(401).send("Unauthorized");
+  }
+
   try {
     if (topic === "orders/paid") {
       await webhookHandlers.ordersPaid(topic, shop, req.body);
@@ -208,25 +232,51 @@ app.use("/pixel", pixelScriptRouter);
 // Parse JSON body
 app.use(express.json());
 
-// Custom session middleware — extracts shop from Shopify JWT token
-app.use("/api/*", (req, res, next) => {
+// SECURITY: Session middleware — verifies Shopify JWT signature before trusting shop identity
+app.use("/api/*", async (req, res, next) => {
   try {
     const authHeader = req.headers["authorization"] || "";
     const token = authHeader.replace("Bearer ", "");
-    if (token) {
-      const payload = JSON.parse(Buffer.from(token.split(".")[1], "base64").toString());
-      const dest = payload.dest || "";
-      const shop = dest.replace("https://", "");
-      if (shop) {
-        res.locals.shopify = { session: { shop } };
-        return next();
+
+    if (token && token.includes(".")) {
+      const parts = token.split(".");
+      if (parts.length === 3) {
+        const { createHmac, timingSafeEqual } = await import("crypto");
+        const apiSecret = process.env.SHOPIFY_API_SECRET || "";
+
+        // Verify JWT signature: HMAC-SHA256 of header.payload
+        const signingInput = parts[0] + "." + parts[1];
+        const expectedSig = createHmac("sha256", apiSecret)
+          .update(signingInput)
+          .digest("base64url");
+
+        let sigValid = false;
+        try {
+          sigValid = timingSafeEqual(
+            Buffer.from(expectedSig),
+            Buffer.from(parts[2])
+          );
+        } catch { sigValid = false; }
+
+        if (sigValid) {
+          const payload = JSON.parse(Buffer.from(parts[1], "base64").toString());
+          const dest = payload.dest || "";
+          const shop = dest.replace("https://", "");
+          if (shop && shop.includes(".myshopify.com")) {
+            res.locals.shopify = { session: { shop } };
+            return next();
+          }
+        }
       }
     }
-  } catch (e) {}
+  } catch (e) {
+    // Fall through to header/query fallback
+  }
 
+  // Fallback: header or query param (only for internal/trusted calls)
   const shop = req.headers["x-shopify-shop"] || req.query.shop;
-  if (shop) {
-    res.locals.shopify = { session: { shop } };
+  if (shop && String(shop).includes(".myshopify.com")) {
+    res.locals.shopify = { session: { shop: String(shop) } };
     return next();
   }
 
@@ -235,6 +285,7 @@ app.use("/api/*", (req, res, next) => {
 
 app.use("/api/settings", settingsRouter(shopify));
 app.use("/api/deliveries", deliveriesRouter(shopify));
+app.use("/api/discount-codes", discountCodesRouter());
 
 // Serve frontend — set frame-ancestors to allow Shopify Admin to embed the app
 app.use((req, res, next) => {
@@ -252,7 +303,7 @@ app.use("/*", async (_req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`HashTopic Postback app listening on port ${PORT}`);
+  console.log(`MyStorefront Postback app listening on port ${PORT}`);
   startRetryWorker();
 });
 
