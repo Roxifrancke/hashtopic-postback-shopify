@@ -182,5 +182,26 @@ export function resetDeliveryForRetry(deliveryId) {
   `).run(deliveryId);
 }
 
+// ── OAuth access token helpers ───────────────────────────────────────────────
+// The OAuth access token issued by Shopify during app install is stored as
+// shopify_admin_token. This means merchants never need to manually create a
+// private app or paste a token — it's captured automatically on install.
+
+export function saveAccessToken(shop, accessToken) {
+  // Ensure a settings row exists first
+  db.prepare(`INSERT OR IGNORE INTO settings (shop) VALUES (?)`).run(shop);
+
+  db.prepare(`
+    UPDATE settings
+    SET shopify_admin_token = ?, updated_at = datetime('now')
+    WHERE shop = ?
+  `).run(accessToken, shop);
+}
+
+export function getAccessToken(shop) {
+  const row = db.prepare("SELECT shopify_admin_token FROM settings WHERE shop = ?").get(shop);
+  return row?.shopify_admin_token || null;
+}
+
 export default db;
 export { db };
