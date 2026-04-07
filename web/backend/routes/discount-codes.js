@@ -91,7 +91,12 @@ export default function discountCodesRouter() {
       const { price_rules: priceRules } = await priceRulesRes.json();
       const codes = [];
 
+      // NOTE: This is an N+1 pattern — one request per price rule.
+      // Shopify's REST API doesn't support bulk fetching codes across rules.
+      // On stores with many price rules this could hit Shopify's rate limit (2 req/s leaky bucket).
+      // Consider adding a delay or migrating to the GraphQL bulk operations API for large stores.
       for (const rule of priceRules) {
+        // Fetch discount codes for each price rule
         const codesRes = await shopifyAdminFetch(
           shop, adminToken,
           `price_rules/${rule.id}/discount_codes.json?limit=250&fields=id,code,usage_count`
@@ -154,6 +159,7 @@ export default function discountCodesRouter() {
     }
 
     try {
+      // Step 1: Create the price rule
       const priceRuleBody = {
         price_rule: {
           title: code.toUpperCase(),
@@ -192,6 +198,7 @@ export default function discountCodesRouter() {
 
       const { price_rule } = await priceRuleRes.json();
 
+      // Step 2: Create the discount code under the price rule
       const discountCodeRes = await shopifyAdminFetch(
         shop, adminToken,
         `price_rules/${price_rule.id}/discount_codes.json`,
@@ -202,12 +209,14 @@ export default function discountCodesRouter() {
       );
 
       if (!discountCodeRes.ok) {
+        // Roll back the price rule
         await shopifyAdminFetch(shop, adminToken, `price_rules/${price_rule.id}.json`, {
           method: "DELETE",
         });
 
         const errBody = await discountCodeRes.json().catch(() => ({}));
 
+        // 422 usually means duplicate code
         if (discountCodeRes.status === 422) {
           return res.status(409).json({ error: "Coupon already exists", code: code.toUpperCase() });
         }
@@ -244,6 +253,7 @@ export default function discountCodesRouter() {
 
     const priceRuleId = req.params.id;
 
+    // Strict numeric validation — prevents path traversal in Shopify API URL
     if (!/^\d+$/.test(priceRuleId)) {
       return res.status(400).json({ error: "Invalid price rule ID." });
     }
@@ -270,5 +280,7 @@ export default function discountCodesRouter() {
     }
   });
 
+  // ── GET /api/discount-codes/ping — connection check ────────────────────
+  // Note: registered before the auth middleware fires for this path
   return router;
 }
