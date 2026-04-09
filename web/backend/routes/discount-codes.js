@@ -43,7 +43,10 @@ export default function discountCodesRouter() {
   // Falls back to API-key lookup if the shop string doesn't match a row,
   // which handles custom domains vs .myshopify.com aliases.
   function resolveShop(req) {
-    const providedKey = req.headers["x-mystorefront-key"] || "";
+        const providedKey =
+      req.headers["x-mystorefront-key"] ||
+      req.headers["x-hashtopic-key"] ||
+      "";
     const shopParam = req.query.shop || req.headers["x-shopify-shop"];
 
     if (shopParam) {
