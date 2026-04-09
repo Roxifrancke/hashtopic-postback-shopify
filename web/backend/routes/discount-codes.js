@@ -43,7 +43,7 @@ export default function discountCodesRouter() {
   // Falls back to API-key lookup if the shop string doesn't match a row,
   // which handles custom domains vs .myshopify.com aliases.
   function resolveShop(req) {
-        const providedKey =
+    const providedKey =
       req.headers["x-mystorefront-key"] ||
       req.headers["x-hashtopic-key"] ||
       "";
@@ -52,7 +52,6 @@ export default function discountCodesRouter() {
     if (shopParam) {
       const settings = getSettings(String(shopParam));
       if (settings) return { shop: String(shopParam), settings, providedKey };
-      // Fall through to API-key lookup if shop string didn't match
     }
     const settings = getSettingsByApiKey(providedKey);
     return { shop: settings?.shop || null, settings, providedKey };
@@ -69,7 +68,7 @@ export default function discountCodesRouter() {
     return res.json({ ok: true });
   });
 
-  // ── Auth middleware: validate shop + X-Mystorefront-Key ─────────────────
+  // ── Auth middleware: validate shop + API key ────────────────────────────
   router.use((req, res, next) => {
     const { shop, settings, providedKey } = resolveShop(req);
     if (!shop || !settings) {
@@ -86,8 +85,8 @@ export default function discountCodesRouter() {
     next();
   });
 
-  // ── GET /api/discount-codes — list all codes ────────────────────────────
-  router.get("/", async (req, res) => {
+  // ── GET /api/discount-codes  (and /coupons alias) — list all codes ─────
+  router.get(["/", "/coupons"], async (req, res) => {
     const shop = res.locals.shop;
     const adminToken = res.locals.adminToken;
 
@@ -134,7 +133,7 @@ export default function discountCodesRouter() {
         }
       }
 
-      return res.json({ codes, total: codes.length });
+      return res.json({ codes, coupons: codes, total: codes.length });
     } catch (err) {
       console.error("[HT] GET /api/discount-codes error:", err);
       return res.status(500).json({ error: err.message });
