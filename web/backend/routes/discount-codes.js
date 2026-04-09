@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { timingSafeEqual } from "crypto";
-import { getSettings } from "../db.js";
+import { getSettings, getSettingsByApiKey } from "../db.js";
 
 /**
  * Constant-time string comparison to prevent timing attacks.
@@ -13,21 +13,16 @@ function safeCompare(a, b) {
   }
 }
 
-// Map MyStorefront discount_type to Shopify price rule value_type
 const DISCOUNT_TYPE_MAP = {
   percentage: "percentage",
   fixed_amount: "fixed_amount",
 };
 
-// Map Shopify value_type back to MyStorefront discount_type
 const SHOPIFY_TYPE_TO_MS = {
   percentage: "percentage",
   fixed_amount: "fixed_amount",
 };
 
-/**
- * Call the Shopify Admin REST API for a given shop.
- */
 async function shopifyAdminFetch(shop, adminToken, path, options = {}) {
   const url = `https://${shop}/admin/api/2024-01/${path}`;
   const res = await fetch(url, {
@@ -44,46 +39,43 @@ async function shopifyAdminFetch(shop, adminToken, path, options = {}) {
 export default function discountCodesRouter() {
   const router = Router();
 
-  // ── GET /api/discount-codes/ping — public connection check ─────────────
-  // Registered BEFORE the auth middleware. Validates shop + API key directly
-  // (no Shopify session, since MyStorefront calls this from its servers).
-  router.get("/ping", (req, res) => {
-    const shop = req.query.shop || req.headers["x-shopify-shop"];
-    if (!shop) return res.status(400).json({ error: "shop parameter required" });
-
-    const settings = getSettings(String(shop));
-    const storedKey = settings?.mystorefront_api_key || "";
+  // Resolve {shop, settings} from either ?shop=... or the API key alone
+  function resolveShop(req) {
     const providedKey = req.headers["x-mystorefront-key"] || "";
+    const shopParam = req.query.shop || req.headers["x-shopify-shop"];
+
+    if (shopParam) {
+      const settings = getSettings(String(shopParam));
+      return { shop: String(shopParam), settings, providedKey };
+    }
+    const settings = getSettingsByApiKey(providedKey);
+    return { shop: settings?.shop || null, settings, providedKey };
+  }
+
+  // ── GET /api/discount-codes/ping — public connection check ─────────────
+  router.get("/ping", (req, res) => {
+    const { settings, providedKey } = resolveShop(req);
+    const storedKey = settings?.mystorefront_api_key || "";
 
     if (!storedKey || !providedKey || !safeCompare(providedKey, storedKey)) {
       return res.status(401).json({ error: "Invalid or missing X-Mystorefront-Key header." });
     }
-
     return res.json({ ok: true });
   });
 
   // ── Auth middleware: validate shop + X-Mystorefront-Key ─────────────────
-  // Shop comes from query param or X-Shopify-Shop header (set by MyStorefront),
-  // since this router is mounted before the Shopify JWT session middleware.
   router.use((req, res, next) => {
-    const shop = req.query.shop || req.headers["x-shopify-shop"];
-    if (!shop) return res.status(400).json({ error: "shop parameter required" });
-
-    const settings = getSettings(String(shop));
-    const storedKey = settings?.mystorefront_api_key || "";
-
-    if (!storedKey) {
-      return res.status(401).json({
-        error: "MyStorefront API key is not configured on this store.",
-      });
-    }
-
-    const providedKey = req.headers["x-mystorefront-key"] || "";
-    if (!providedKey || !safeCompare(providedKey, storedKey)) {
+    const { shop, settings, providedKey } = resolveShop(req);
+    if (!shop || !settings) {
       return res.status(401).json({ error: "Invalid or missing X-Mystorefront-Key header." });
     }
 
-    res.locals.shop = String(shop);
+    const storedKey = settings.mystorefront_api_key || "";
+    if (!storedKey || !providedKey || !safeCompare(providedKey, storedKey)) {
+      return res.status(401).json({ error: "Invalid or missing X-Mystorefront-Key header." });
+    }
+
+    res.locals.shop = shop;
     res.locals.adminToken = settings.shopify_admin_token || "";
     next();
   });
