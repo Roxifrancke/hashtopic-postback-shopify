@@ -5,12 +5,13 @@ import compression from "compression";
 import morgan from "morgan";
 import { join } from "path";
 import { readFileSync } from "fs";
+import { timingSafeEqual } from "crypto";
 import { shopifyApp } from "@shopify/shopify-app-express";
 import { SQLiteSessionStorage } from "@shopify/shopify-app-session-storage-sqlite";
 import { ApiVersion } from "@shopify/shopify-api";
 import { restResources } from "@shopify/shopify-api/rest/admin/2024-01";
 
-import db from "./db.js";
+import db, { getSettings } from "./db.js";
 import settingsRouter from "./routes/settings.js";
 import deliveriesRouter from "./routes/deliveries.js";
 import webhookHandlers from "./webhooks/index.js";
@@ -123,12 +124,6 @@ app.get(
 /**
  * Programmatically activates the Click ID Capture app embed block in the
  * merchant's currently-active theme by patching config/settings_data.json.
- *
- * Block type URL format:
- *   shopify://apps/{app-handle}/blocks/{block-handle}
- *
- * Replace APP_HANDLE below with your app's handle from the Partners dashboard
- * (Partners → Apps → your app → "App handle" field, e.g. "hashtopic-postback").
  */
 async function enableClickIdEmbed(shop, accessToken) {
   const APP_HANDLE = process.env.SHOPIFY_APP_HANDLE || "hashtopic-postback-4";
@@ -210,13 +205,13 @@ app.post(shopify.config.webhooks.path, express.text({ type: "*/*" }), async (req
     return res.status(401).send("Unauthorized");
   }
 
-  const { createHmac, timingSafeEqual } = await import("crypto");
+  const { createHmac, timingSafeEqual: tse } = await import("crypto");
   const digest = createHmac("sha256", process.env.SHOPIFY_API_SECRET)
     .update(req.body, "utf8")
     .digest("base64");
 
   try {
-    if (!timingSafeEqual(Buffer.from(digest), Buffer.from(hmac))) {
+    if (!tse(Buffer.from(digest), Buffer.from(hmac))) {
       console.error("[HT] Webhook rejected: HMAC mismatch");
       return res.status(401).send("Unauthorized");
     }
@@ -243,6 +238,34 @@ app.use("/pixel", pixelScriptRouter);
 // Parse JSON body
 app.use(express.json());
 
+// ── Public ping endpoint — called by MyStorefront to verify connection ──────
+// Must be registered BEFORE the session middleware, as this request comes
+// from MyStorefront's servers (no Shopify JWT), authenticated only by API key.
+app.get("/api/settings/ping", (req, res) => {
+  const shop = req.query.shop || req.headers["x-shopify-shop"];
+  if (!shop) return res.status(400).json({ error: "shop parameter required" });
+
+  const settings = getSettings(shop);
+  const storedKey = settings?.mystorefront_api_key || "";
+  const providedKey = req.headers["x-mystorefront-key"] || "";
+
+  if (!storedKey || !providedKey) {
+    return res.status(401).json({ error: "Invalid or missing X-Mystorefront-Key header." });
+  }
+
+  let match = false;
+  try { match = timingSafeEqual(Buffer.from(storedKey), Buffer.from(providedKey)); } catch {}
+  if (!match) {
+    return res.status(401).json({ error: "Invalid or missing X-Mystorefront-Key header." });
+  }
+
+  return res.json({ ok: true });
+});
+
+// ── MyStorefront-facing discount codes — also BEFORE session middleware ─────
+// Called by MyStorefront's servers using X-Mystorefront-Key auth (handled inside router).
+app.use("/api/discount-codes", discountCodesRouter());
+
 // SECURITY: Session middleware — verifies Shopify JWT signature before trusting shop identity
 app.use("/api/*", async (req, res, next) => {
   try {
@@ -252,7 +275,7 @@ app.use("/api/*", async (req, res, next) => {
     if (token && token.includes(".")) {
       const parts = token.split(".");
       if (parts.length === 3) {
-        const { createHmac, timingSafeEqual } = await import("crypto");
+        const { createHmac, timingSafeEqual: tse } = await import("crypto");
         const apiSecret = process.env.SHOPIFY_API_SECRET || "";
 
         // Verify JWT signature: HMAC-SHA256 of header.payload
@@ -263,7 +286,7 @@ app.use("/api/*", async (req, res, next) => {
 
         let sigValid = false;
         try {
-          sigValid = timingSafeEqual(
+          sigValid = tse(
             Buffer.from(expectedSig),
             Buffer.from(parts[2])
           );
@@ -294,9 +317,9 @@ app.use("/api/*", async (req, res, next) => {
   res.status(403).json({ error: "No shop identified" });
 });
 
+// Routes protected by Shopify JWT session middleware (merchant-facing)
 app.use("/api/settings", settingsRouter(shopify));
 app.use("/api/deliveries", deliveriesRouter(shopify));
-app.use("/api/discount-codes", discountCodesRouter());
 
 // Serve frontend — set frame-ancestors to allow Shopify Admin to embed the app
 app.use((req, res, next) => {
