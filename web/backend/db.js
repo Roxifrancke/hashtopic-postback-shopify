@@ -60,6 +60,20 @@ export function getSettings(shop) {
   };
 }
 
+export function getSettingsByApiKey(apiKey) {
+  if (!apiKey) return null;
+  const row = db.prepare("SELECT * FROM settings WHERE mystorefront_api_key = ?").get(apiKey);
+  if (!row) return null;
+  return {
+    ...row,
+    paid_statuses: JSON.parse(row.paid_statuses || '["paid"]'),
+    debug: Boolean(row.debug),
+    test_mode: Boolean(row.test_mode),
+    mystorefront_api_key: row.mystorefront_api_key || "",
+    shopify_admin_token: row.shopify_admin_token || "",
+  };
+}
+
 export function saveSettings(shop, data) {
   const existing = getSettings(shop);
   const secret =
@@ -183,12 +197,8 @@ export function resetDeliveryForRetry(deliveryId) {
 }
 
 // ── OAuth access token helpers ───────────────────────────────────────────────
-// The OAuth access token issued by Shopify during app install is stored as
-// shopify_admin_token. This means merchants never need to manually create a
-// private app or paste a token — it's captured automatically on install.
 
 export function saveAccessToken(shop, accessToken) {
-  // Ensure a settings row exists first
   db.prepare(`INSERT OR IGNORE INTO settings (shop) VALUES (?)`).run(shop);
 
   db.prepare(`
