@@ -39,14 +39,17 @@ async function shopifyAdminFetch(shop, adminToken, path, options = {}) {
 export default function discountCodesRouter() {
   const router = Router();
 
-  // Resolve {shop, settings} from either ?shop=... or the API key alone
+  // Resolve {shop, settings} from either ?shop=... or the API key alone.
+  // Falls back to API-key lookup if the shop string doesn't match a row,
+  // which handles custom domains vs .myshopify.com aliases.
   function resolveShop(req) {
     const providedKey = req.headers["x-mystorefront-key"] || "";
     const shopParam = req.query.shop || req.headers["x-shopify-shop"];
 
     if (shopParam) {
       const settings = getSettings(String(shopParam));
-      return { shop: String(shopParam), settings, providedKey };
+      if (settings) return { shop: String(shopParam), settings, providedKey };
+      // Fall through to API-key lookup if shop string didn't match
     }
     const settings = getSettingsByApiKey(providedKey);
     return { shop: settings?.shop || null, settings, providedKey };
