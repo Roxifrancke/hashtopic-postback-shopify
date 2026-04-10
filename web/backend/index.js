@@ -7,11 +7,11 @@ import { join } from "path";
 import { readFileSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import { shopifyApp } from "@shopify/shopify-app-express";
-import { SQLiteSessionStorage } from "@shopify/shopify-app-session-storage-sqlite";
+import { PostgreSQLSessionStorage } from "@shopify/shopify-app-session-storage-postgresql";
 import { ApiVersion } from "@shopify/shopify-api";
 import { restResources } from "@shopify/shopify-api/rest/admin/2024-01";
 
-import db, { getSettings } from "./db.js";
+import { getSettings } from "./db.js";
 import settingsRouter from "./routes/settings.js";
 import deliveriesRouter from "./routes/deliveries.js";
 import webhookHandlers from "./webhooks/index.js";
@@ -19,17 +19,13 @@ import { startRetryWorker } from "./retry-worker.js";
 import { pixelScriptRouter } from "./routes/pixel-script.js";
 import discountCodesRouter from "./routes/discount-codes.js";
 
-// Safe schema migrations — ALTER TABLE is a no-op if column already exists
-try { db.exec(`ALTER TABLE settings ADD COLUMN mystorefront_api_key TEXT NOT NULL DEFAULT ''`); } catch {}
-try { db.exec(`ALTER TABLE settings ADD COLUMN shopify_admin_token TEXT NOT NULL DEFAULT ''`); } catch {}
-
 const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || "3000", 10);
 const STATIC_PATH =
   process.env.NODE_ENV === "production"
     ? `${process.cwd()}/web/frontend/dist`
     : `${process.cwd()}/web/frontend/`;
 
-const HOST_NAME = (process.env.SHOPIFY_APP_URL || "hashtopic-postback-shopify.onrender.com").replace(/^https?:\/\//, "");
+const HOST_NAME = (process.env.SHOPIFY_APP_URL || "").replace(/^https?:\/\//, "");
 
 const shopify = shopifyApp({
   api: {
@@ -45,8 +41,8 @@ const shopify = shopifyApp({
   webhooks: {
     path: "/api/webhooks",
   },
-  // Persistent file-based session storage — sessions survive restarts/redeploys
-  sessionStorage: new SQLiteSessionStorage(join(process.cwd(), "shopify-sessions.sqlite")),
+  // Persistent PostgreSQL session storage — sessions survive restarts/redeploys
+  sessionStorage: new PostgreSQLSessionStorage(process.env.DATABASE_URL),
 });
 
 const app = express();
@@ -105,16 +101,16 @@ app.get(
       const session = res.locals.shopify?.session;
       if (session?.shop && session?.accessToken) {
         const { saveAccessToken } = await import("./db.js");
-        saveAccessToken(session.shop, session.accessToken);
-        console.log(`[HT] Access token saved for ${session.shop}`);
+        await saveAccessToken(session.shop, session.accessToken);
+        console.log(`[MS] Access token saved for ${session.shop}`);
 
         // Auto-enable the Click ID Capture app embed in the active theme
         enableClickIdEmbed(session.shop, session.accessToken).catch((err) =>
-          console.error("[HT] Failed to auto-enable app embed:", err.message)
+          console.error("[MS] Failed to auto-enable app embed:", err.message)
         );
       }
     } catch (err) {
-      console.error("[HT] Error saving access token:", err.message);
+      console.error("[MS] Error saving access token:", err.message);
     }
     next();
   },
@@ -126,7 +122,7 @@ app.get(
  * merchant's currently-active theme by patching config/settings_data.json.
  */
 async function enableClickIdEmbed(shop, accessToken) {
-  const APP_HANDLE = process.env.SHOPIFY_APP_HANDLE || "hashtopic-postback-4";
+  const APP_HANDLE = process.env.SHOPIFY_APP_HANDLE || "mystorefront-postback";
   const BLOCK_HANDLE = "click-id-capture";
   const API_VERSION = "2024-01";
   const headers = {
@@ -143,7 +139,7 @@ async function enableClickIdEmbed(shop, accessToken) {
   const { themes } = await themesRes.json();
   const activeTheme = themes.find((t) => t.role === "main");
   if (!activeTheme) {
-    console.warn("[HT] No active theme found for", shop);
+    console.warn("[MS] No active theme found for", shop);
     return;
   }
 
@@ -163,7 +159,7 @@ async function enableClickIdEmbed(shop, accessToken) {
     (b) => b.type === blockType && b.disabled !== true
   );
   if (alreadyEnabled) {
-    console.log(`[HT] App embed already enabled for ${shop}`);
+    console.log(`[MS] App embed already enabled for ${shop}`);
     return;
   }
 
@@ -190,7 +186,7 @@ async function enableClickIdEmbed(shop, accessToken) {
     const body = await putRes.text();
     throw new Error(`asset PUT failed ${putRes.status}: ${body}`);
   }
-  console.log(`[HT] App embed enabled in theme "${activeTheme.name}" for ${shop}`);
+  console.log(`[MS] App embed enabled in theme "${activeTheme.name}" for ${shop}`);
 }
 
 // Webhook route — HMAC verified before dispatching
@@ -201,7 +197,7 @@ app.post(shopify.config.webhooks.path, express.text({ type: "*/*" }), async (req
 
   // SECURITY: verify HMAC signature before processing any webhook payload
   if (!hmac || !process.env.SHOPIFY_API_SECRET) {
-    console.error("[HT] Webhook rejected: missing HMAC or API secret not configured");
+    console.error("[MS] Webhook rejected: missing HMAC or API secret not configured");
     return res.status(401).send("Unauthorized");
   }
 
@@ -212,7 +208,7 @@ app.post(shopify.config.webhooks.path, express.text({ type: "*/*" }), async (req
 
   try {
     if (!tse(Buffer.from(digest), Buffer.from(hmac))) {
-      console.error("[HT] Webhook rejected: HMAC mismatch");
+      console.error("[MS] Webhook rejected: HMAC mismatch");
       return res.status(401).send("Unauthorized");
     }
   } catch {
@@ -227,7 +223,7 @@ app.post(shopify.config.webhooks.path, express.text({ type: "*/*" }), async (req
     }
     res.status(200).send("OK");
   } catch (err) {
-    console.error("[HT] Webhook route error:", err);
+    console.error("[MS] Webhook route error:", err);
     res.status(500).send("Error");
   }
 });
@@ -241,11 +237,11 @@ app.use(express.json());
 // ── Public ping endpoint — called by MyStorefront to verify connection ──────
 // Must be registered BEFORE the session middleware, as this request comes
 // from MyStorefront's servers (no Shopify JWT), authenticated only by API key.
-app.get("/api/settings/ping", (req, res) => {
+app.get("/api/settings/ping", async (req, res) => {
   const shop = req.query.shop || req.headers["x-shopify-shop"];
   if (!shop) return res.status(400).json({ error: "shop parameter required" });
 
-  const settings = getSettings(shop);
+  const settings = await getSettings(shop);
   const storedKey = settings?.mystorefront_api_key || "";
   const providedKey = req.headers["x-mystorefront-key"] || "";
 
