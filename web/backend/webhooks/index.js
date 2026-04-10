@@ -15,9 +15,9 @@ import {
 const MAX_RETRY = MAX_ATTEMPTS;
 
 async function processOrder(shop, order) {
-  const settings = getSettings(shop);
+  const settings = await getSettings(shop);
   if (!settings?.webhook_url) {
-    console.log(`[HT] No webhook URL configured for ${shop}, skipping.`);
+    console.log(`[MS] No webhook URL configured for ${shop}, skipping.`);
     return;
   }
 
@@ -29,17 +29,17 @@ async function processOrder(shop, order) {
     return;
   }
 
-  const delivery = upsertDelivery(shop, String(order.id), order.name);
+  const delivery = await upsertDelivery(shop, String(order.id), order.name);
 
   // Already sent? Skip.
   if (delivery.status === "sent") {
-    console.log(`[HT] Order ${order.id} already sent for ${shop}, skipping.`);
+    console.log(`[MS] Order ${order.id} already sent for ${shop}, skipping.`);
     return;
   }
 
   // Max attempts reached?
   if (delivery.attempts >= MAX_RETRY) {
-    console.log(`[HT] Order ${order.id} max attempts reached for ${shop}.`);
+    console.log(`[MS] Order ${order.id} max attempts reached for ${shop}.`);
     return;
   }
 
@@ -47,13 +47,13 @@ async function processOrder(shop, order) {
   const result = await sendPayload(payload, settings);
 
   if (result.success) {
-    markDeliverySent(delivery.id, result.httpCode);
-    console.log(`[HT] Postback sent for order ${order.id} on ${shop} (HTTP ${result.httpCode})`);
+    await markDeliverySent(delivery.id, result.httpCode);
+    console.log(`[MS] Postback sent for order ${order.id} on ${shop} (HTTP ${result.httpCode})`);
   } else {
     const attempt = delivery.attempts + 1;
     const retryAt = attempt < MAX_RETRY ? nextRetryAt(attempt) : null;
-    markDeliveryFailed(delivery.id, result.httpCode, result.error, retryAt);
-    console.error(`[HT] Postback failed for order ${order.id} on ${shop}: ${result.error}`);
+    await markDeliveryFailed(delivery.id, result.httpCode, result.error, retryAt);
+    console.error(`[MS] Postback failed for order ${order.id} on ${shop}: ${result.error}`);
   }
 }
 
@@ -62,7 +62,7 @@ const ordersPaid = async (topic, shop, body, webhookId) => {
     const order = JSON.parse(body);
     await processOrder(shop, order);
   } catch (err) {
-    console.error("[HT] Error in orders/paid handler:", err);
+    console.error("[MS] Error in orders/paid handler:", err);
   }
 };
 
@@ -70,14 +70,14 @@ const ordersUpdated = async (topic, shop, body, webhookId) => {
   try {
     const order = JSON.parse(body);
     // Only process if financial_status changed to a paid state
-    const settings = getSettings(shop);
+    const settings = await getSettings(shop);
     if (!settings) return;
     const paidStatuses = settings.paid_statuses || ["paid"];
     if (paidStatuses.includes(order.financial_status)) {
       await processOrder(shop, order);
     }
   } catch (err) {
-    console.error("[HT] Error in orders/updated handler:", err);
+    console.error("[MS] Error in orders/updated handler:", err);
   }
 };
 
