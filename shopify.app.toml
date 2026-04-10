@@ -1,4 +1,4 @@
-name = "HashTopic Postback"
+name = "MyStorefront Postback"
 client_id = "ab5565dc8f31ff5263247c38e852ac31"
 application_url = "https://hashtopic-postback-shopify.onrender.com"
 embedded = true
