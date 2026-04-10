@@ -6,52 +6,46 @@ import {
   markDeliveryFailed,
 } from "./db.js";
 import { getSettings } from "./db.js";
-import { buildPayload, sendPayload, nextRetryAt, MAX_ATTEMPTS } from "./postback-sender.js";
+import { sendPayload, nextRetryAt, MAX_ATTEMPTS } from "./postback-sender.js";
 import webhookHandlers from "./webhooks/index.js";
 
 export function startRetryWorker() {
   // Run every minute to check for pending retries
   cron.schedule("* * * * *", async () => {
-    const pending = getPendingRetries();
+    const pending = await getPendingRetries();
     if (!pending.length) return;
 
-    console.log(`[HT Retry] Processing ${pending.length} pending retries...`);
+    console.log(`[MS Retry] Processing ${pending.length} pending retries...`);
 
     for (const delivery of pending) {
       try {
         await retryDelivery(delivery);
       } catch (err) {
-        console.error(`[HT Retry] Error retrying delivery ${delivery.id}:`, err);
+        console.error(`[MS Retry] Error retrying delivery ${delivery.id}:`, err);
       }
     }
   });
 
-  console.log("[HT] Retry worker started (runs every minute).");
+  console.log("[MS] Retry worker started (runs every minute).");
 }
 
 async function retryDelivery(delivery) {
-  const settings = getSettings(delivery.shop);
+  const settings = await getSettings(delivery.shop);
   if (!settings?.webhook_url) return;
-
-  // Re-fetch from Shopify to get latest order data
-  // For retry, we re-build from stored order_id - we need to fetch from Shopify API
-  // or store the payload. Here we store enough in the delivery to reconstruct.
-  // For simplicity in retry, we'll just re-send with minimal payload indicating retry.
-  // In production you'd cache the payload or re-fetch from Shopify API.
 
   const payload = buildRetryPayload(delivery, settings);
   const result = await sendPayload(payload, settings);
 
   if (result.success) {
-    markDeliverySent(delivery.id, result.httpCode);
-    console.log(`[HT Retry] Delivery ${delivery.id} sent successfully.`);
+    await markDeliverySent(delivery.id, result.httpCode);
+    console.log(`[MS Retry] Delivery ${delivery.id} sent successfully.`);
   } else {
     const attempt = delivery.attempts + 1;
     const retryAt = attempt < MAX_ATTEMPTS ? nextRetryAt(attempt) : null;
-    markDeliveryFailed(delivery.id, result.httpCode, result.error, retryAt);
+    await markDeliveryFailed(delivery.id, result.httpCode, result.error, retryAt);
 
     if (!retryAt) {
-      console.error(`[HT Retry] Delivery ${delivery.id} failed permanently after ${attempt} attempts.`);
+      console.error(`[MS Retry] Delivery ${delivery.id} failed permanently after ${attempt} attempts.`);
     }
   }
 }
