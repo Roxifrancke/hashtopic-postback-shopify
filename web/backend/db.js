@@ -10,9 +10,6 @@ const pool = new Pool({
   ssl: isLocalhost ? false : { rejectUnauthorized: false },
 });
 
-
-
-
 // ── Schema ──────────────────────────────────────────────────────────────────
 
 async function initDb() {
@@ -119,6 +116,17 @@ export async function saveSettings(shop, data) {
       ? data.shopify_admin_token.trim()
       : existing?.shopify_admin_token || "";
 
+  // Merge with existing values so partial updates (e.g. generate-api-key) don't wipe fields
+  const merged = {
+    webhook_url:   data.webhook_url   !== undefined ? data.webhook_url   : existing?.webhook_url   || "",
+    paid_statuses: data.paid_statuses !== undefined ? data.paid_statuses : existing?.paid_statuses  || ["paid"],
+    param_names:   data.param_names   !== undefined ? data.param_names   : existing?.param_names    || "click_id",
+    cookie_name:   data.cookie_name   !== undefined ? data.cookie_name   : existing?.cookie_name    || "_ht_click_id",
+    cookie_days:   data.cookie_days   !== undefined ? data.cookie_days   : existing?.cookie_days    || 30,
+    debug:         data.debug         !== undefined ? data.debug         : existing?.debug          || false,
+    test_mode:     data.test_mode     !== undefined ? data.test_mode     : existing?.test_mode      || false,
+  };
+
   await pool.query(`
     INSERT INTO settings (shop, webhook_url, webhook_secret, paid_statuses, param_names,
       cookie_name, cookie_days, debug, test_mode, mystorefront_api_key, shopify_admin_token, updated_at)
@@ -137,14 +145,14 @@ export async function saveSettings(shop, data) {
       updated_at           = NOW()
   `, [
     shop,
-    data.webhook_url || "",
+    merged.webhook_url,
     secret,
-    JSON.stringify(data.paid_statuses || ["paid"]),
-    data.param_names || "click_id",
-    data.cookie_name || "_ht_click_id",
-    Math.min(365, Math.max(1, parseInt(data.cookie_days, 10) || 30)),
-    data.debug ? 1 : 0,
-    data.test_mode ? 1 : 0,
+    JSON.stringify(merged.paid_statuses),
+    merged.param_names,
+    merged.cookie_name,
+    Math.min(365, Math.max(1, parseInt(merged.cookie_days, 10) || 30)),
+    merged.debug ? 1 : 0,
+    merged.test_mode ? 1 : 0,
     msApiKey,
     adminToken,
   ]);
