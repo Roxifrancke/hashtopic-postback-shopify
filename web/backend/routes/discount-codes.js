@@ -36,13 +36,54 @@ async function shopifyAdminFetch(shop, adminToken, path, options = {}) {
   return res;
 }
 
+/**
+ * Check if a discount code already exists by searching price rules with the same title.
+ * Returns the existing price rule and discount code if found, null otherwise.
+ */
+async function findExistingDiscountCode(shop, adminToken, code) {
+  const upperCode = code.toUpperCase();
+
+  // Fetch price rules and look for one with a matching title
+  const priceRulesRes = await shopifyAdminFetch(
+    shop, adminToken,
+    "price_rules.json?limit=250&fields=id,title"
+  );
+
+  if (!priceRulesRes.ok) return null;
+
+  const { price_rules: priceRules } = await priceRulesRes.json();
+  const matchingRules = priceRules.filter(
+    (rule) => rule.title.toUpperCase() === upperCode
+  );
+
+  if (matchingRules.length === 0) return null;
+
+  // Check each matching rule for a discount code with the same code
+  for (const rule of matchingRules) {
+    const codesRes = await shopifyAdminFetch(
+      shop, adminToken,
+      `price_rules/${rule.id}/discount_codes.json?limit=250`
+    );
+    if (!codesRes.ok) continue;
+
+    const { discount_codes: codes } = await codesRes.json();
+    const match = codes.find((dc) => dc.code.toUpperCase() === upperCode);
+
+    if (match) {
+      return { price_rule_id: rule.id, discount_code: match };
+    }
+  }
+
+  return null;
+}
+
 export default function discountCodesRouter() {
   const router = Router();
 
   // Resolve {shop, settings} from either ?shop=... or the API key alone.
   // Falls back to API-key lookup if the shop string doesn't match a row,
   // which handles custom domains vs .myshopify.com aliases.
-  function resolveShop(req) {
+  async function resolveShop(req) {
     const providedKey =
       req.headers["x-mystorefront-key"] ||
       req.headers["x-hashtopic-key"] ||
@@ -50,16 +91,16 @@ export default function discountCodesRouter() {
     const shopParam = req.query.shop || req.headers["x-shopify-shop"];
 
     if (shopParam) {
-      const settings = getSettings(String(shopParam));
+      const settings = await getSettings(String(shopParam));
       if (settings) return { shop: String(shopParam), settings, providedKey };
     }
-    const settings = getSettingsByApiKey(providedKey);
+    const settings = await getSettingsByApiKey(providedKey);
     return { shop: settings?.shop || null, settings, providedKey };
   }
 
   // ── GET /api/discount-codes/ping — public connection check ─────────────
-  router.get("/ping", (req, res) => {
-    const { settings, providedKey } = resolveShop(req);
+  router.get("/ping", async (req, res) => {
+    const { settings, providedKey } = await resolveShop(req);
     const storedKey = settings?.mystorefront_api_key || "";
 
     if (!storedKey || !providedKey || !safeCompare(providedKey, storedKey)) {
@@ -69,8 +110,8 @@ export default function discountCodesRouter() {
   });
 
   // ── Auth middleware: validate shop + API key ────────────────────────────
-  router.use((req, res, next) => {
-    const { shop, settings, providedKey } = resolveShop(req);
+  router.use(async (req, res, next) => {
+    const { shop, settings, providedKey } = await resolveShop(req);
     if (!shop || !settings) {
       return res.status(401).json({ error: "Invalid or missing X-Mystorefront-Key header." });
     }
@@ -135,7 +176,7 @@ export default function discountCodesRouter() {
 
       return res.json({ codes, coupons: codes, total: codes.length });
     } catch (err) {
-      console.error("[HT] GET /api/discount-codes error:", err);
+      console.error("[MS] GET /api/discount-codes error:", err);
       return res.status(500).json({ error: err.message });
     }
   });
@@ -168,6 +209,17 @@ export default function discountCodesRouter() {
     }
 
     try {
+      // ── Deduplication check: see if this code already exists ──────────
+      const existing = await findExistingDiscountCode(shop, adminToken, code);
+      if (existing) {
+        return res.status(409).json({
+          error: "Coupon already exists",
+          code: code.toUpperCase(),
+          discount_code_id: String(existing.discount_code.id),
+          price_rule_id: String(existing.price_rule_id),
+        });
+      }
+
       const priceRuleBody = {
         price_rule: {
           title: code.toUpperCase(),
@@ -239,7 +291,7 @@ export default function discountCodesRouter() {
         code: discount_code.code.toUpperCase(),
       });
     } catch (err) {
-      console.error("[HT] POST /api/discount-codes error:", err);
+      console.error("[MS] POST /api/discount-codes error:", err);
       return res.status(500).json({ error: err.message });
     }
   });
@@ -276,7 +328,7 @@ export default function discountCodesRouter() {
 
       return res.json({ success: true });
     } catch (err) {
-      console.error("[HT] DELETE /api/discount-codes error:", err);
+      console.error("[MS] DELETE /api/discount-codes error:", err);
       return res.status(500).json({ error: err.message });
     }
   });
