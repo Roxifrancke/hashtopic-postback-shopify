@@ -1,4 +1,17 @@
 import "dotenv/config";
+
+// Force pg to use SSL — the Shopify session-storage library doesn't pass ssl
+// options to its internal pg.Pool, so we rely on the libpq env vars instead.
+const dbUrl = process.env.DATABASE_URL || "";
+const isLocal = dbUrl.includes("localhost") || dbUrl.includes("127.0.0.1");
+if (!isLocal && !process.env.PGSSLMODE) {
+  process.env.PGSSLMODE = "require";
+  // Render uses self-signed certs; pg needs this to accept them
+  if (!process.env.NODE_TLS_REJECT_UNAUTHORIZED) {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+  }
+}
+
 import express from "express";
 import helmet from "helmet";
 import compression from "compression";
@@ -42,11 +55,7 @@ const shopify = shopifyApp({
     path: "/api/webhooks",
   },
   // Persistent PostgreSQL session storage — sessions survive restarts/redeploys
-    sessionStorage: new PostgreSQLSessionStorage(
-    process.env.DATABASE_URL?.includes("sslmode=")
-      ? process.env.DATABASE_URL
-      : process.env.DATABASE_URL + (process.env.DATABASE_URL?.includes("?") ? "&sslmode=require" : "?sslmode=require")
-  ),
+  sessionStorage: new PostgreSQLSessionStorage(process.env.DATABASE_URL),
 });
 
 const app = express();
