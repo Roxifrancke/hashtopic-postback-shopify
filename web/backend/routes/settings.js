@@ -18,11 +18,11 @@ export default function settingsRouter(shopify) {
   const router = Router();
 
   // ── GET /api/settings/ping — unauthenticated connection check ───────────
-  router.get("/ping", (req, res) => {
+  router.get("/ping", async (req, res) => {
     const shop = req.query.shop || req.headers["x-shopify-shop"];
     if (!shop) return res.status(400).json({ error: "shop parameter required" });
 
-    const settings = getSettings(shop);
+    const settings = await getSettings(shop);
     const storedKey = settings?.mystorefront_api_key || "";
     const providedKey = req.headers["x-mystorefront-key"] || "";
 
@@ -37,7 +37,7 @@ export default function settingsRouter(shopify) {
   router.get("/", async (req, res) => {
     try {
       const shop = res.locals.shopify.session.shop;
-      const s = getSettings(shop);
+      const s = await getSettings(shop);
 
       if (!s) {
         return res.json({
@@ -89,8 +89,8 @@ export default function settingsRouter(shopify) {
         return res.status(400).json({ error: "Webhook URL must start with https://" });
       }
 
-      saveSettings(shop, body);
-      const saved = getSettings(shop);
+      await saveSettings(shop, body);
+      const saved = await getSettings(shop);
 
       return res.json({
         success: true,
@@ -119,7 +119,7 @@ export default function settingsRouter(shopify) {
     try {
       const shop = res.locals.shopify.session.shop;
       const newKey = randomBytes(16).toString("hex");
-      saveSettings(shop, { mystorefront_api_key: newKey });
+      await saveSettings(shop, { mystorefront_api_key: newKey });
       return res.json({ success: true, key: newKey });
     } catch (err) {
       console.error("POST /api/settings/generate-api-key error:", err);
@@ -131,7 +131,7 @@ export default function settingsRouter(shopify) {
   router.post("/test", async (req, res) => {
     try {
       const shop = res.locals.shopify.session.shop;
-      const settings = getSettings(shop);
+      const settings = await getSettings(shop);
 
       if (!settings?.webhook_url) {
         return res.status(400).json({ error: "Webhook URL not configured. Save settings first." });
