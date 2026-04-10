@@ -42,7 +42,11 @@ const shopify = shopifyApp({
     path: "/api/webhooks",
   },
   // Persistent PostgreSQL session storage — sessions survive restarts/redeploys
-  sessionStorage: new PostgreSQLSessionStorage(process.env.DATABASE_URL),
+    sessionStorage: new PostgreSQLSessionStorage(
+    process.env.DATABASE_URL?.includes("sslmode=")
+      ? process.env.DATABASE_URL
+      : process.env.DATABASE_URL + (process.env.DATABASE_URL?.includes("?") ? "&sslmode=require" : "?sslmode=require")
+  ),
 });
 
 const app = express();
