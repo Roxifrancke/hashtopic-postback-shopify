@@ -156,7 +156,7 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <Page title="HashTopic Postback">
+      <Page title="MyStorefront Postback">
         <Layout><Layout.Section><Card>
           <BlockStack inlineAlign="center" gap="400"><Spinner /><Text>Loading settings...</Text></BlockStack>
         </Card></Layout.Section></Layout>
@@ -166,7 +166,7 @@ export default function SettingsPage() {
 
   return (
     <Page
-      title="HashTopic Postback"
+      title="MyStorefront Postback"
       subtitle="Send conversion postbacks and sync discount codes with MyStorefront."
       primaryAction={{ content: "Save", onAction: handleSave, loading: saving }}
     >
