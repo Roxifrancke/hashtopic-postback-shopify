@@ -14,7 +14,7 @@ export default function deliveriesRouter(shopify) {
   router.get("/", async (req, res) => {
     try {
       const shop = res.locals.shopify.session.shop;
-      const rows = getDeliveriesForShop(shop, 50);
+      const rows = await getDeliveriesForShop(shop, 50);
       return res.json({ deliveries: rows });
     } catch (err) {
       console.error("GET /api/deliveries error:", err);
@@ -26,17 +26,17 @@ export default function deliveriesRouter(shopify) {
   router.post("/:id/retry", async (req, res) => {
     try {
       const shop = res.locals.shopify.session.shop;
-      const delivery = getDeliveryById(Number(req.params.id));
+      const delivery = await getDeliveryById(Number(req.params.id));
 
       if (!delivery || delivery.shop !== shop) {
         return res.status(404).json({ error: "Delivery not found." });
       }
 
       // Reset status to pending so retry worker picks it up, or process immediately
-      resetDeliveryForRetry(delivery.id);
+      await resetDeliveryForRetry(delivery.id);
 
       // Try immediately using a minimal session API call
-      const settings = getSettings(shop);
+      const settings = await getSettings(shop);
       if (!settings?.webhook_url) {
         return res.status(400).json({ error: "Webhook URL not configured." });
       }
@@ -50,7 +50,7 @@ export default function deliveriesRouter(shopify) {
 
         if (order) {
           await webhookHandlers.processOrder(shop, order);
-          const updated = getDeliveryById(delivery.id);
+          const updated = await getDeliveryById(delivery.id);
           return res.json({ success: true, delivery: updated });
         }
       } catch (shopifyErr) {
@@ -61,7 +61,7 @@ export default function deliveriesRouter(shopify) {
       return res.json({
         success: true,
         message: "Retry queued.",
-        delivery: getDeliveryById(delivery.id),
+        delivery: await getDeliveryById(delivery.id),
       });
     } catch (err) {
       console.error("POST /api/deliveries/:id/retry error:", err);
