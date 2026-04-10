@@ -3,13 +3,13 @@ import pg from "pg";
 const { Pool } = pg;
 
 const dbUrl = process.env.DATABASE_URL || "";
-const isInternal = dbUrl.includes(".render.com") && !dbUrl.includes("sslmode=");
 const isLocalhost = dbUrl.includes("localhost") || dbUrl.includes("127.0.0.1");
 
 const pool = new Pool({
   connectionString: dbUrl,
-  ssl: (isLocalhost || isInternal) ? false : { rejectUnauthorized: false },
+  ssl: isLocalhost ? false : { rejectUnauthorized: false },
 });
+
 
 
 
