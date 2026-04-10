@@ -9,13 +9,13 @@ export const pixelScriptRouter = Router();
  * and stores it in a first-party cookie.
  * This is loaded by the Shopify theme via Script Tag or Web Pixel.
  */
-pixelScriptRouter.get("/:shop/capture.js", (req, res) => {
+pixelScriptRouter.get("/:shop/capture.js", async (req, res) => {
   const shop = req.params.shop;
   if (!shop || !shop.includes(".myshopify.com")) {
     return res.status(400).send("// Invalid shop");
   }
 
-  const settings = getSettings(shop);
+  const settings = await getSettings(shop);
   const paramNames = (settings?.param_names || "click_id")
     .split(",")
     .map((s) => s.trim())
@@ -34,7 +34,7 @@ pixelScriptRouter.get("/:shop/capture.js", (req, res) => {
 
 function generateCaptureScript(paramNames, cookieName, cookieDays) {
   return `
-/* HashTopic Postback — Click ID Capture v1.1.0 */
+/* MyStorefront Postback — Click ID Capture v1.1.0 */
 (function() {
   'use strict';
 
