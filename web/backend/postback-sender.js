@@ -104,7 +104,7 @@ export async function sendPayload(payload, settings) {
       headers: {
         "Content-Type": "application/json",
         "x-webhook-secret": webhook_secret || "",
-        "User-Agent": `HashTopicPostbackShopify/1.0; https://${payload.store?.site_url || ""}`,
+        "User-Agent": `MyStorefrontPostbackShopify/1.0; https://${payload.store?.site_url || ""}`,
       },
       body,
       signal: controller.signal,
