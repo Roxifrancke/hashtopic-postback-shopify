@@ -110,21 +110,26 @@ export default function discountCodesRouter() {
   });
 
   // ── Auth middleware: validate shop + API key ────────────────────────────
-  router.use(async (req, res, next) => {
-    const { shop, settings, providedKey } = await resolveShop(req);
-    if (!shop || !settings) {
-      return res.status(401).json({ error: "Invalid or missing X-Mystorefront-Key header." });
-    }
+router.use(async (req, res, next) => {
+  // ✅ CRITICAL: allow preflight requests (CORS)
+  if (req.method === "OPTIONS") {
+    return next();
+  }
 
-    const storedKey = settings.mystorefront_api_key || "";
-    if (!storedKey || !providedKey || !safeCompare(providedKey, storedKey)) {
-      return res.status(401).json({ error: "Invalid or missing X-Mystorefront-Key header." });
-    }
+  const { shop, settings, providedKey } = await resolveShop(req);
+  if (!shop || !settings) {
+    return res.status(401).json({ error: "Invalid or missing X-Mystorefront-Key header." });
+  }
 
-    res.locals.shop = shop;
-    res.locals.adminToken = settings.shopify_admin_token || "";
-    next();
-  });
+  const storedKey = settings.mystorefront_api_key || "";
+  if (!storedKey || !providedKey || !safeCompare(providedKey, storedKey)) {
+    return res.status(401).json({ error: "Invalid or missing X-Mystorefront-Key header." });
+  }
+
+  res.locals.shop = shop;
+  res.locals.adminToken = settings.shopify_admin_token || "";
+  next();
+});
 
   // ── GET /api/discount-codes  (and /coupons alias) — list all codes ─────
   router.get(["/", "/coupons"], async (req, res) => {
