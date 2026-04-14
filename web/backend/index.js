@@ -31,6 +31,7 @@ import webhookHandlers from "./webhooks/index.js";
 import { startRetryWorker } from "./retry-worker.js";
 import { pixelScriptRouter } from "./routes/pixel-script.js";
 import discountCodesRouter from "./routes/discount-codes.js";
+import cors from "cors";
 
 const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || "3000", 10);
 const STATIC_PATH =
@@ -59,6 +60,23 @@ const shopify = shopifyApp({
 });
 
 const app = express();
+
+// ✅ ADD THIS FIRST (before everything)
+app.use(cors({
+  origin: "*", // or "https://mystorefront.io"
+  methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "X-Mystorefront-Key"]
+}));
+
+// ✅ HANDLE PREFLIGHT (CRITICAL)
+app.options("*", (req, res) => {
+  res.set({
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-Mystorefront-Key"
+  });
+  return res.sendStatus(200);
+});
 
 app.use(morgan("combined"));
 app.use(compression());
