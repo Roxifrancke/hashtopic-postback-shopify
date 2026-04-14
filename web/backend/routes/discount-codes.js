@@ -319,7 +319,8 @@ export default function discountCodesRouter() {
       );
 
       if (deleteRes.status === 404) {
-        return res.status(404).json({ error: "Price rule not found." });
+        // Already gone — treat as success for idempotent sync
+        return res.json({ success: true, already_deleted: true });
       }
 
       if (!deleteRes.ok && deleteRes.status !== 204) {
@@ -329,6 +330,107 @@ export default function discountCodesRouter() {
       return res.json({ success: true });
     } catch (err) {
       console.error("[MS] DELETE /api/discount-codes error:", err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── PATCH /api/discount-codes/:id — update a code's fields ─────────────
+  // Accepts: discount_type, discount_value, minimum_order_value, expiry_date,
+  // usage_limit, is_active. Missing fields are left unchanged.
+  router.patch("/:id", async (req, res) => {
+    const shop = res.locals.shop;
+    const adminToken = res.locals.adminToken;
+
+    if (!adminToken) {
+      return res.status(400).json({ error: "Shopify Admin API token not configured." });
+    }
+
+    const priceRuleId = req.params.id;
+    if (!/^\d+$/.test(priceRuleId)) {
+      return res.status(400).json({ error: "Invalid price rule ID." });
+    }
+
+    const {
+      discount_type,
+      discount_value,
+      minimum_order_value,
+      expiry_date,
+      usage_limit,
+      is_active,
+    } = req.body || {};
+
+    try {
+      // Fetch existing rule so we don't wipe fields we aren't updating
+      const getRes = await shopifyAdminFetch(
+        shop, adminToken,
+        `price_rules/${priceRuleId}.json`
+      );
+      if (getRes.status === 404) {
+        return res.status(404).json({ error: "Price rule not found." });
+      }
+      if (!getRes.ok) {
+        return res.status(502).json({ error: `Shopify returned HTTP ${getRes.status}` });
+      }
+      const { price_rule: existing } = await getRes.json();
+
+      const patch = { id: existing.id };
+
+      if (discount_type !== undefined) {
+        const mapped = DISCOUNT_TYPE_MAP[discount_type];
+        if (!mapped) {
+          return res.status(400).json({ error: "Invalid discount_type." });
+        }
+        patch.value_type = mapped;
+      }
+      if (discount_value !== undefined) {
+        patch.value = `-${Math.abs(discount_value)}`;
+      }
+      if (minimum_order_value !== undefined) {
+        patch.prerequisite_subtotal_range =
+          minimum_order_value && parseFloat(minimum_order_value) > 0
+            ? { greater_than_or_equal_to: String(minimum_order_value) }
+            : null;
+      }
+      if (usage_limit !== undefined) {
+        patch.usage_limit = usage_limit ? parseInt(usage_limit, 10) : null;
+      }
+
+      // Handle expiry + active together. Active=false ⇒ ends_at=now (past).
+      // Active=true with no expiry_date ⇒ clear ends_at.
+      if (is_active === false) {
+        patch.ends_at = new Date().toISOString();
+      } else if (is_active === true && expiry_date === undefined) {
+        // Reactivating without an explicit new expiry — clear any past ends_at
+        if (existing.ends_at && new Date(existing.ends_at) <= new Date()) {
+          patch.ends_at = null;
+        }
+      }
+      if (expiry_date !== undefined && is_active !== false) {
+        patch.ends_at = expiry_date ? new Date(expiry_date).toISOString() : null;
+      }
+
+      const updateRes = await shopifyAdminFetch(
+        shop, adminToken,
+        `price_rules/${priceRuleId}.json`,
+        { method: "PUT", body: JSON.stringify({ price_rule: patch }) }
+      );
+
+      if (!updateRes.ok) {
+        const errBody = await updateRes.json().catch(() => ({}));
+        return res.status(502).json({
+          error: `Shopify update failed (HTTP ${updateRes.status})`,
+          details: errBody,
+        });
+      }
+
+      const { price_rule: updated } = await updateRes.json();
+      return res.json({
+        success: true,
+        price_rule_id: String(updated.id),
+        is_active: !updated.ends_at || new Date(updated.ends_at) > new Date(),
+      });
+    } catch (err) {
+      console.error("[MS] PATCH /api/discount-codes error:", err);
       return res.status(500).json({ error: err.message });
     }
   });
