@@ -2,6 +2,7 @@ import { Router } from "express";
 import { randomBytes, timingSafeEqual } from "crypto";
 import { getSettings, saveSettings } from "../db.js";
 import { buildTestPayload, sendPayload } from "../postback-sender.js";
+import { registerWebhooks } from "../services/registerWebhooks.js";
 
 /**
  * Constant-time string comparison to prevent timing attacks.
@@ -20,14 +21,17 @@ export default function settingsRouter(shopify) {
   // ── GET /api/settings/ping — unauthenticated connection check ───────────
   router.get("/ping", async (req, res) => {
     const shop = req.query.shop || req.headers["x-shopify-shop"];
-    if (!shop) return res.status(400).json({ error: "shop parameter required" });
+    if (!shop)
+      return res.status(400).json({ error: "shop parameter required" });
 
     const settings = await getSettings(shop);
     const storedKey = settings?.mystorefront_api_key || "";
     const providedKey = req.headers["x-mystorefront-key"] || "";
 
     if (!storedKey || !providedKey || !safeCompare(providedKey, storedKey)) {
-      return res.status(401).json({ error: "Invalid or missing X-Mystorefront-Key header." });
+      return res
+        .status(401)
+        .json({ error: "Invalid or missing X-Mystorefront-Key header." });
     }
 
     return res.json({ ok: true });
@@ -86,11 +90,21 @@ export default function settingsRouter(shopify) {
       const { shopify_admin_token: _ignored, ...body } = req.body;
 
       if (body.webhook_url && !body.webhook_url.startsWith("https://")) {
-        return res.status(400).json({ error: "Webhook URL must start with https://" });
+        return res
+          .status(400)
+          .json({ error: "Webhook URL must start with https://" });
       }
 
       await saveSettings(shop, body);
       const saved = await getSettings(shop);
+
+      // ✅ Auto-register Shopify webhooks
+      if (saved?.shopify_admin_token) {
+        await registerWebhooks({
+          shop,
+          accessToken: saved.shopify_admin_token,
+        });
+      }
 
       return res.json({
         success: true,
@@ -134,7 +148,9 @@ export default function settingsRouter(shopify) {
       const settings = await getSettings(shop);
 
       if (!settings?.webhook_url) {
-        return res.status(400).json({ error: "Webhook URL not configured. Save settings first." });
+        return res
+          .status(400)
+          .json({ error: "Webhook URL not configured. Save settings first." });
       }
 
       const payload = buildTestPayload(shop, settings);
