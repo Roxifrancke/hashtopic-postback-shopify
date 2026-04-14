@@ -32,6 +32,7 @@ import { startRetryWorker } from "./retry-worker.js";
 import { pixelScriptRouter } from "./routes/pixel-script.js";
 import discountCodesRouter from "./routes/discount-codes.js";
 import cors from "cors";
+import shopifyWebhooks from "./routes/shopify-webhooks.js";
 
 const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || "3000", 10);
 const STATIC_PATH =
@@ -89,6 +90,8 @@ app.use(
     xFrameOptions: false,
   })
 );
+
+app.use("/api/webhooks/shopify", shopifyWebhooks);
 
 app.get("/health", (req, res) => res.status(200).send("OK"));
 
