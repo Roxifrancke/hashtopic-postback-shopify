@@ -45,15 +45,16 @@ async function findExistingDiscountCode(shop, adminToken, code) {
 
   // Fetch price rules and look for one with a matching title
   const priceRulesRes = await shopifyAdminFetch(
-    shop, adminToken,
-    "price_rules.json?limit=250&fields=id,title"
+    shop,
+    adminToken,
+    "price_rules.json?limit=250&fields=id,title",
   );
 
   if (!priceRulesRes.ok) return null;
 
   const { price_rules: priceRules } = await priceRulesRes.json();
   const matchingRules = priceRules.filter(
-    (rule) => rule.title.toUpperCase() === upperCode
+    (rule) => rule.title.toUpperCase() === upperCode,
   );
 
   if (matchingRules.length === 0) return null;
@@ -61,8 +62,9 @@ async function findExistingDiscountCode(shop, adminToken, code) {
   // Check each matching rule for a discount code with the same code
   for (const rule of matchingRules) {
     const codesRes = await shopifyAdminFetch(
-      shop, adminToken,
-      `price_rules/${rule.id}/discount_codes.json?limit=250`
+      shop,
+      adminToken,
+      `price_rules/${rule.id}/discount_codes.json?limit=250`,
     );
     if (!codesRes.ok) continue;
 
@@ -85,9 +87,7 @@ export default function discountCodesRouter() {
   // which handles custom domains vs .myshopify.com aliases.
   async function resolveShop(req) {
     const providedKey =
-      req.headers["x-mystorefront-key"] ||
-      req.headers["x-hashtopic-key"] ||
-      "";
+      req.headers["x-mystorefront-key"] || req.headers["x-hashtopic-key"] || "";
     const shopParam = req.query.shop || req.headers["x-shopify-shop"];
 
     if (shopParam) {
@@ -104,32 +104,38 @@ export default function discountCodesRouter() {
     const storedKey = settings?.mystorefront_api_key || "";
 
     if (!storedKey || !providedKey || !safeCompare(providedKey, storedKey)) {
-      return res.status(401).json({ error: "Invalid or missing X-Mystorefront-Key header." });
+      return res
+        .status(401)
+        .json({ error: "Invalid or missing X-Mystorefront-Key header." });
     }
     return res.json({ ok: true });
   });
 
   // ── Auth middleware: validate shop + API key ────────────────────────────
-router.use(async (req, res, next) => {
-  // ✅ CRITICAL: allow preflight requests (CORS)
-  if (req.method === "OPTIONS") {
-    return next();
-  }
+  router.use(async (req, res, next) => {
+    // ✅ CRITICAL: allow preflight requests (CORS)
+    if (req.method === "OPTIONS") {
+      return next();
+    }
 
-  const { shop, settings, providedKey } = await resolveShop(req);
-  if (!shop || !settings) {
-    return res.status(401).json({ error: "Invalid or missing X-Mystorefront-Key header." });
-  }
+    const { shop, settings, providedKey } = await resolveShop(req);
+    if (!shop || !settings) {
+      return res
+        .status(401)
+        .json({ error: "Invalid or missing X-Mystorefront-Key header." });
+    }
 
-  const storedKey = settings.mystorefront_api_key || "";
-  if (!storedKey || !providedKey || !safeCompare(providedKey, storedKey)) {
-    return res.status(401).json({ error: "Invalid or missing X-Mystorefront-Key header." });
-  }
+    const storedKey = settings.mystorefront_api_key || "";
+    if (!storedKey || !providedKey || !safeCompare(providedKey, storedKey)) {
+      return res
+        .status(401)
+        .json({ error: "Invalid or missing X-Mystorefront-Key header." });
+    }
 
-  res.locals.shop = shop;
-  res.locals.adminToken = settings.shopify_admin_token || "";
-  next();
-});
+    res.locals.shop = shop;
+    res.locals.adminToken = settings.shopify_admin_token || "";
+    next();
+  });
 
   // ── GET /api/discount-codes  (and /coupons alias) — list all codes ─────
   router.get(["/", "/coupons"], async (req, res) => {
@@ -137,17 +143,22 @@ router.use(async (req, res, next) => {
     const adminToken = res.locals.adminToken;
 
     if (!adminToken) {
-      return res.status(400).json({ error: "Shopify Admin API token not configured." });
+      return res
+        .status(400)
+        .json({ error: "Shopify Admin API token not configured." });
     }
 
     try {
       const priceRulesRes = await shopifyAdminFetch(
-        shop, adminToken,
-        "price_rules.json?limit=250&fields=id,title,value_type,value,customer_selection,prerequisite_subtotal_range,ends_at,usage_limit"
+        shop,
+        adminToken,
+        "price_rules.json?limit=250&fields=id,title,value_type,value,customer_selection,prerequisite_subtotal_range,ends_at,usage_limit",
       );
 
       if (!priceRulesRes.ok) {
-        return res.status(502).json({ error: `Shopify returned HTTP ${priceRulesRes.status}` });
+        return res
+          .status(502)
+          .json({ error: `Shopify returned HTTP ${priceRulesRes.status}` });
       }
 
       const { price_rules: priceRules } = await priceRulesRes.json();
@@ -155,8 +166,9 @@ router.use(async (req, res, next) => {
 
       for (const rule of priceRules) {
         const codesRes = await shopifyAdminFetch(
-          shop, adminToken,
-          `price_rules/${rule.id}/discount_codes.json?limit=250&fields=id,code,usage_count`
+          shop,
+          adminToken,
+          `price_rules/${rule.id}/discount_codes.json?limit=250&fields=id,code,usage_count`,
         );
 
         if (!codesRes.ok) continue;
@@ -171,7 +183,9 @@ router.use(async (req, res, next) => {
             discount_type: SHOPIFY_TYPE_TO_MS[rule.value_type] || "percentage",
             discount_value: Math.abs(parseFloat(rule.value)),
             minimum_order_value:
-              parseFloat(rule.prerequisite_subtotal_range?.greater_than_or_equal_to || 0) || null,
+              parseFloat(
+                rule.prerequisite_subtotal_range?.greater_than_or_equal_to || 0,
+              ) || null,
             expiry_date: rule.ends_at ? rule.ends_at.split("T")[0] : null,
             usage_limit: rule.usage_limit || null,
             usage_count: dc.usage_count || 0,
@@ -187,12 +201,15 @@ router.use(async (req, res, next) => {
   });
 
   // ── POST /api/discount-codes — create a new code ────────────────────────
+  // ── POST /api/discount-codes — create OR update ────────────────────────
   router.post("/", async (req, res) => {
     const shop = res.locals.shop;
     const adminToken = res.locals.adminToken;
 
     if (!adminToken) {
-      return res.status(400).json({ error: "Shopify Admin API token not configured." });
+      return res
+        .status(400)
+        .json({ error: "Shopify Admin API token not configured." });
     }
 
     const {
@@ -205,29 +222,73 @@ router.use(async (req, res, next) => {
     } = req.body;
 
     if (!code || !discount_type || discount_value == null) {
-      return res.status(400).json({ error: "Missing required fields: code, discount_type, discount_value" });
+      return res
+        .status(400)
+        .json({
+          error: "Missing required fields: code, discount_type, discount_value",
+        });
     }
 
     const shopifyValueType = DISCOUNT_TYPE_MAP[discount_type];
     if (!shopifyValueType) {
-      return res.status(400).json({ error: "Invalid discount_type. Use: percentage, fixed_amount" });
+      return res.status(400).json({ error: "Invalid discount_type." });
     }
 
     try {
-      // ── Deduplication check: see if this code already exists ──────────
-      const existing = await findExistingDiscountCode(shop, adminToken, code);
+      const upperCode = code.toUpperCase();
+
+      // ✅ STEP 1: CHECK IF EXISTS
+      const existing = await findExistingDiscountCode(
+        shop,
+        adminToken,
+        upperCode,
+      );
+
       if (existing) {
-        return res.status(409).json({
-          error: "Coupon already exists",
-          code: code.toUpperCase(),
-          discount_code_id: String(existing.discount_code.id),
+        // 🔥 UPDATE instead of blocking
+        const updateRes = await shopifyAdminFetch(
+          shop,
+          adminToken,
+          `price_rules/${existing.price_rule_id}.json`,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              price_rule: {
+                id: existing.price_rule_id,
+                value_type: shopifyValueType,
+                value: `-${Math.abs(discount_value)}`,
+                ...(expiry_date && {
+                  ends_at: new Date(expiry_date).toISOString(),
+                }),
+                ...(minimum_order_value && {
+                  prerequisite_subtotal_range: {
+                    greater_than_or_equal_to: String(minimum_order_value),
+                  },
+                }),
+                ...(usage_limit && { usage_limit: parseInt(usage_limit, 10) }),
+              },
+            }),
+          },
+        );
+
+        if (!updateRes.ok) {
+          const err = await updateRes.json().catch(() => ({}));
+          return res.status(502).json({ error: "Update failed", details: err });
+        }
+
+        return res.json({
+          success: true,
+          updated: true,
           price_rule_id: String(existing.price_rule_id),
+          code: upperCode,
         });
       }
 
+      // ✅ STEP 2: CREATE (ONLY IF NOT EXISTS)
+
       const priceRuleBody = {
         price_rule: {
-          title: code.toUpperCase(),
+          title: upperCode,
           target_type: "line_item",
           target_selection: "all",
           allocation_method: "across",
@@ -236,7 +297,7 @@ router.use(async (req, res, next) => {
           customer_selection: "all",
           starts_at: new Date().toISOString(),
           ...(expiry_date && { ends_at: new Date(expiry_date).toISOString() }),
-          ...(minimum_order_value && parseFloat(minimum_order_value) > 0 && {
+          ...(minimum_order_value && {
             prerequisite_subtotal_range: {
               greater_than_or_equal_to: String(minimum_order_value),
             },
@@ -246,57 +307,60 @@ router.use(async (req, res, next) => {
       };
 
       const priceRuleRes = await shopifyAdminFetch(
-        shop, adminToken,
+        shop,
+        adminToken,
         "price_rules.json",
-        { method: "POST", body: JSON.stringify(priceRuleBody) }
+        { method: "POST", body: JSON.stringify(priceRuleBody) },
       );
 
       if (!priceRuleRes.ok) {
         const errBody = await priceRuleRes.json().catch(() => ({}));
-        return res.status(502).json({
-          error: `Shopify price rule creation failed (HTTP ${priceRuleRes.status})`,
-          details: errBody,
-        });
+        return res
+          .status(502)
+          .json({ error: "Create rule failed", details: errBody });
       }
 
       const { price_rule } = await priceRuleRes.json();
 
       const discountCodeRes = await shopifyAdminFetch(
-        shop, adminToken,
+        shop,
+        adminToken,
         `price_rules/${price_rule.id}/discount_codes.json`,
         {
           method: "POST",
-          body: JSON.stringify({ discount_code: { code: code.toUpperCase() } }),
-        }
+          body: JSON.stringify({
+            discount_code: { code: upperCode },
+          }),
+        },
       );
 
       if (!discountCodeRes.ok) {
-        await shopifyAdminFetch(shop, adminToken, `price_rules/${price_rule.id}.json`, {
-          method: "DELETE",
-        });
+        await shopifyAdminFetch(
+          shop,
+          adminToken,
+          `price_rules/${price_rule.id}.json`,
+          {
+            method: "DELETE",
+          },
+        );
 
         const errBody = await discountCodeRes.json().catch(() => ({}));
-
-        if (discountCodeRes.status === 422) {
-          return res.status(409).json({ error: "Coupon already exists", code: code.toUpperCase() });
-        }
-
-        return res.status(502).json({
-          error: `Shopify discount code creation failed (HTTP ${discountCodeRes.status})`,
-          details: errBody,
-        });
+        return res
+          .status(502)
+          .json({ error: "Create code failed", details: errBody });
       }
 
       const { discount_code } = await discountCodeRes.json();
 
       return res.status(201).json({
         success: true,
+        created: true,
         discount_code_id: String(discount_code.id),
         price_rule_id: String(price_rule.id),
-        code: discount_code.code.toUpperCase(),
+        code: discount_code.code,
       });
     } catch (err) {
-      console.error("[MS] POST /api/discount-codes error:", err);
+      console.error("[MS] POST error:", err);
       return res.status(500).json({ error: err.message });
     }
   });
@@ -307,7 +371,9 @@ router.use(async (req, res, next) => {
     const adminToken = res.locals.adminToken;
 
     if (!adminToken) {
-      return res.status(400).json({ error: "Shopify Admin API token not configured." });
+      return res
+        .status(400)
+        .json({ error: "Shopify Admin API token not configured." });
     }
 
     const priceRuleId = req.params.id;
@@ -318,9 +384,10 @@ router.use(async (req, res, next) => {
 
     try {
       const deleteRes = await shopifyAdminFetch(
-        shop, adminToken,
+        shop,
+        adminToken,
         `price_rules/${priceRuleId}.json`,
-        { method: "DELETE" }
+        { method: "DELETE" },
       );
 
       if (deleteRes.status === 404) {
@@ -329,7 +396,9 @@ router.use(async (req, res, next) => {
       }
 
       if (!deleteRes.ok && deleteRes.status !== 204) {
-        return res.status(502).json({ error: `Shopify returned HTTP ${deleteRes.status}` });
+        return res
+          .status(502)
+          .json({ error: `Shopify returned HTTP ${deleteRes.status}` });
       }
 
       return res.json({ success: true });
@@ -347,7 +416,9 @@ router.use(async (req, res, next) => {
     const adminToken = res.locals.adminToken;
 
     if (!adminToken) {
-      return res.status(400).json({ error: "Shopify Admin API token not configured." });
+      return res
+        .status(400)
+        .json({ error: "Shopify Admin API token not configured." });
     }
 
     const priceRuleId = req.params.id;
@@ -367,14 +438,17 @@ router.use(async (req, res, next) => {
     try {
       // Fetch existing rule so we don't wipe fields we aren't updating
       const getRes = await shopifyAdminFetch(
-        shop, adminToken,
-        `price_rules/${priceRuleId}.json`
+        shop,
+        adminToken,
+        `price_rules/${priceRuleId}.json`,
       );
       if (getRes.status === 404) {
         return res.status(404).json({ error: "Price rule not found." });
       }
       if (!getRes.ok) {
-        return res.status(502).json({ error: `Shopify returned HTTP ${getRes.status}` });
+        return res
+          .status(502)
+          .json({ error: `Shopify returned HTTP ${getRes.status}` });
       }
       const { price_rule: existing } = await getRes.json();
 
@@ -411,13 +485,16 @@ router.use(async (req, res, next) => {
         }
       }
       if (expiry_date !== undefined && is_active !== false) {
-        patch.ends_at = expiry_date ? new Date(expiry_date).toISOString() : null;
+        patch.ends_at = expiry_date
+          ? new Date(expiry_date).toISOString()
+          : null;
       }
 
       const updateRes = await shopifyAdminFetch(
-        shop, adminToken,
+        shop,
+        adminToken,
         `price_rules/${priceRuleId}.json`,
-        { method: "PUT", body: JSON.stringify({ price_rule: patch }) }
+        { method: "PUT", body: JSON.stringify({ price_rule: patch }) },
       );
 
       if (!updateRes.ok) {
