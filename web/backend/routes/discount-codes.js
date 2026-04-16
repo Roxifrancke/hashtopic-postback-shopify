@@ -287,16 +287,26 @@ export default function discountCodesRouter() {
 
       // ── Compute the ends_at we want the rule to have after the write ────
       // undefined ⇒ don't touch. null ⇒ clear. string ⇒ set.
+      // Shopify rejects ends_at <= starts_at, so deactivation also rewinds
+      // starts_at to an even earlier historic date.
+      const DEACTIVATE_STARTS_AT = "1999-12-31T00:00:00Z";
+      const DEACTIVATE_ENDS_AT = "2000-01-01T00:00:00Z";
       let resolvedEndsAt;
+      let resolvedStartsAt; // undefined ⇒ don't touch
       if (activeExplicit === false) {
-        // Deactivate — always force a past ends_at so the code is unusable.
+        // Deactivate — force historic starts_at AND ends_at so the rule is
+        // both "ended" and consistent with Shopify's ordering constraint.
+        resolvedStartsAt = DEACTIVATE_STARTS_AT;
         resolvedEndsAt =
-          ends_at && new Date(ends_at) <= new Date()
-            ? new Date(ends_at).toISOString()
-            : "2000-01-01T00:00:00Z";
+          ends_at && new Date(ends_at) <= new Date(DEACTIVATE_STARTS_AT)
+            ? null // malformed past ends_at; fall back to default below
+            : DEACTIVATE_ENDS_AT;
+        if (!resolvedEndsAt) resolvedEndsAt = DEACTIVATE_ENDS_AT;
       } else if (activeExplicit === true) {
-        // Activate — use the provided expiry_date (future) or clear.
+        // Activate — clear end date (or use future expiry_date) and
+        // reset starts_at to "now" so the rule is immediately usable.
         resolvedEndsAt = expiry_date ? new Date(expiry_date).toISOString() : null;
+        resolvedStartsAt = new Date().toISOString();
       } else if (expiry_date !== undefined) {
         resolvedEndsAt = expiry_date ? new Date(expiry_date).toISOString() : null;
       } else if (ends_at !== undefined) {
@@ -325,6 +335,11 @@ export default function discountCodesRouter() {
         }
         if (usage_limit !== undefined) {
           patch.usage_limit = usage_limit ? parseInt(usage_limit, 10) : null;
+        }
+        // Order matters here: starts_at must be written alongside ends_at so
+        // Shopify evaluates the pair atomically and never sees ends_at <= starts_at.
+        if (resolvedStartsAt !== undefined) {
+          patch.starts_at = resolvedStartsAt;
         }
         if (resolvedEndsAt !== undefined) {
           patch.ends_at = resolvedEndsAt;
@@ -372,9 +387,13 @@ export default function discountCodesRouter() {
       }
 
       // For create, honour activation flag: deactivate-on-create = past ends_at.
+      // Creating a rule as "inactive" also needs a historic starts_at so that
+      // Shopify accepts ends_at < now.
+      let createStartsAt = new Date().toISOString();
       let createEndsAt;
       if (activeExplicit === false) {
-        createEndsAt = "2000-01-01T00:00:00Z";
+        createStartsAt = DEACTIVATE_STARTS_AT;
+        createEndsAt = DEACTIVATE_ENDS_AT;
       } else if (expiry_date) {
         createEndsAt = new Date(expiry_date).toISOString();
       }
@@ -388,7 +407,7 @@ export default function discountCodesRouter() {
           value_type: shopifyValueTypeCreate,
           value: `-${Math.abs(Number(discount_value))}`,
           customer_selection: "all",
-          starts_at: new Date().toISOString(),
+          starts_at: createStartsAt,
           ...(createEndsAt && { ends_at: createEndsAt }),
           ...(minimum_order_value && {
             prerequisite_subtotal_range: {
