@@ -4,8 +4,11 @@ import {
   getDeliveryById,
   resetDeliveryForRetry,
   getSettings,
+  getAccessToken,
 } from "../db.js";
 import webhookHandlers from "../webhooks/index.js";
+
+const SHOPIFY_API_VERSION = "2024-01";
 
 export default function deliveriesRouter(shopify) {
   const router = Router();
@@ -41,17 +44,35 @@ export default function deliveriesRouter(shopify) {
         return res.status(400).json({ error: "Webhook URL not configured." });
       }
 
-      // Attempt to fetch order from Shopify and retry
+      // Attempt to fetch order from Shopify and retry.
+      // The session middleware only populates { shop } — no access token —
+      // so we load the offline token persisted at OAuth callback and call the
+      // Admin REST API directly.
       try {
-        const session = res.locals.shopify.session;
-        const client = new shopify.api.clients.Rest({ session });
-        const orderRes = await client.get({ path: `orders/${delivery.order_id}` });
-        const order = orderRes.body?.order;
+        const accessToken = await getAccessToken(shop);
+        if (!accessToken) {
+          console.error(`Could not fetch order from Shopify for retry: no access token stored for ${shop}`);
+        } else {
+          const orderUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/orders/${delivery.order_id}.json`;
+          const orderRes = await fetch(orderUrl, {
+            headers: {
+              "X-Shopify-Access-Token": accessToken,
+              "Content-Type": "application/json",
+            },
+          });
 
-        if (order) {
-          await webhookHandlers.processOrder(shop, order);
-          const updated = await getDeliveryById(delivery.id);
-          return res.json({ success: true, delivery: updated });
+          if (!orderRes.ok) {
+            console.error(
+              `Could not fetch order ${delivery.order_id} from Shopify for retry: HTTP ${orderRes.status}`
+            );
+          } else {
+            const { order } = await orderRes.json();
+            if (order) {
+              await webhookHandlers.processOrder(shop, order);
+              const updated = await getDeliveryById(delivery.id);
+              return res.json({ success: true, delivery: updated });
+            }
+          }
         }
       } catch (shopifyErr) {
         console.error("Could not fetch order from Shopify for retry:", shopifyErr);
