@@ -163,6 +163,7 @@ export default function discountCodesRouter() {
 
       const { price_rules: priceRules } = await priceRulesRes.json();
       const codes = [];
+      const now = new Date();
 
       for (const rule of priceRules) {
         const codesRes = await shopifyAdminFetch(
@@ -174,6 +175,9 @@ export default function discountCodesRouter() {
         if (!codesRes.ok) continue;
 
         const { discount_codes: ruleCodes } = await codesRes.json();
+
+        // A rule is "active" iff it has no ends_at or ends_at is in the future.
+        const isActive = !rule.ends_at || new Date(rule.ends_at) > now;
 
         for (const dc of ruleCodes) {
           codes.push({
@@ -187,6 +191,8 @@ export default function discountCodesRouter() {
                 rule.prerequisite_subtotal_range?.greater_than_or_equal_to || 0,
               ) || null,
             expiry_date: rule.ends_at ? rule.ends_at.split("T")[0] : null,
+            ends_at: rule.ends_at || null,
+            is_active: isActive,
             usage_limit: rule.usage_limit || null,
             usage_count: dc.usage_count || 0,
           });
@@ -200,8 +206,11 @@ export default function discountCodesRouter() {
     }
   });
 
-  // ── POST /api/discount-codes — create a new code ────────────────────────
-  // ── POST /api/discount-codes — create OR update ────────────────────────
+  // ── POST /api/discount-codes — create, update, or delete ───────────────
+  // Accepts an optional `price_rule_id` (fast-path, skips title lookup) and
+  // recognises `is_active` / `active` / `published` / `ends_at` so the
+  // upstream edge function can sync activation state without a separate route.
+  // Pass `action: "delete"` to remove the price rule entirely (idempotent).
   router.post("/", async (req, res) => {
     const shop = res.locals.shop;
     const adminToken = res.locals.adminToken;
@@ -219,72 +228,156 @@ export default function discountCodesRouter() {
       minimum_order_value,
       expiry_date,
       usage_limit,
-    } = req.body;
+      price_rule_id: priceRuleIdFromBody,
+      is_active,
+      active,
+      published,
+      ends_at,
+      action,
+    } = req.body || {};
 
-    if (!code || !discount_type || discount_value == null) {
-      return res
-        .status(400)
-        .json({
-          error: "Missing required fields: code, discount_type, discount_value",
-        });
+    if (!code) {
+      return res.status(400).json({ error: "Missing required field: code" });
     }
 
-    const shopifyValueType = DISCOUNT_TYPE_MAP[discount_type];
-    if (!shopifyValueType) {
-      return res.status(400).json({ error: "Invalid discount_type." });
-    }
+    // Explicit activation flag, if the caller provided one. undefined = no change.
+    const activeExplicit =
+      typeof is_active === "boolean" ? is_active :
+      typeof active === "boolean" ? active :
+      typeof published === "boolean" ? published :
+      undefined;
 
     try {
-      const upperCode = code.toUpperCase();
+      const upperCode = String(code).toUpperCase();
 
-      // ✅ STEP 1: CHECK IF EXISTS
-      const existing = await findExistingDiscountCode(
-        shop,
-        adminToken,
-        upperCode,
-      );
+      // ── Resolve the existing price rule (fast-path via body id) ──────────
+      let existing = null;
+      if (priceRuleIdFromBody && /^\d+$/.test(String(priceRuleIdFromBody))) {
+        existing = { price_rule_id: String(priceRuleIdFromBody) };
+      } else {
+        existing = await findExistingDiscountCode(shop, adminToken, upperCode);
+      }
 
-      if (existing) {
-        // 🔥 UPDATE instead of blocking
-        const updateRes = await shopifyAdminFetch(
+      // ── Action: delete — remove the price rule (idempotent) ─────────────
+      if (action === "delete") {
+        if (!existing) {
+          return res.json({ success: true, already_deleted: true, code: upperCode });
+        }
+        const deleteRes = await shopifyAdminFetch(
           shop,
           adminToken,
           `price_rules/${existing.price_rule_id}.json`,
-          {
-            method: "PUT",
-            body: JSON.stringify({
-              price_rule: {
-                id: existing.price_rule_id,
-                value_type: shopifyValueType,
-                value: `-${Math.abs(discount_value)}`,
-                ...(expiry_date && {
-                  ends_at: new Date(expiry_date).toISOString(),
-                }),
-                ...(minimum_order_value && {
-                  prerequisite_subtotal_range: {
-                    greater_than_or_equal_to: String(minimum_order_value),
-                  },
-                }),
-                ...(usage_limit && { usage_limit: parseInt(usage_limit, 10) }),
-              },
-            }),
-          },
+          { method: "DELETE" },
         );
-
-        if (!updateRes.ok) {
-          const err = await updateRes.json().catch(() => ({}));
-          return res.status(502).json({ error: "Update failed", details: err });
+        if (deleteRes.status === 404) {
+          return res.json({ success: true, already_deleted: true, code: upperCode });
         }
-
+        if (!deleteRes.ok && deleteRes.status !== 204) {
+          return res
+            .status(502)
+            .json({ error: `Shopify DELETE returned HTTP ${deleteRes.status}` });
+        }
         return res.json({
           success: true,
-          updated: true,
+          deleted: true,
           price_rule_id: String(existing.price_rule_id),
           code: upperCode,
         });
       }
 
-      // ✅ STEP 2: CREATE (ONLY IF NOT EXISTS)
+      // ── Compute the ends_at we want the rule to have after the write ────
+      // undefined ⇒ don't touch. null ⇒ clear. string ⇒ set.
+      let resolvedEndsAt;
+      if (activeExplicit === false) {
+        // Deactivate — always force a past ends_at so the code is unusable.
+        resolvedEndsAt =
+          ends_at && new Date(ends_at) <= new Date()
+            ? new Date(ends_at).toISOString()
+            : "2000-01-01T00:00:00Z";
+      } else if (activeExplicit === true) {
+        // Activate — use the provided expiry_date (future) or clear.
+        resolvedEndsAt = expiry_date ? new Date(expiry_date).toISOString() : null;
+      } else if (expiry_date !== undefined) {
+        resolvedEndsAt = expiry_date ? new Date(expiry_date).toISOString() : null;
+      } else if (ends_at !== undefined) {
+        resolvedEndsAt = ends_at;
+      }
+
+      // ── Update path ─────────────────────────────────────────────────────
+      if (existing) {
+        const shopifyValueType = discount_type
+          ? DISCOUNT_TYPE_MAP[discount_type]
+          : undefined;
+        if (discount_type && !shopifyValueType) {
+          return res.status(400).json({ error: "Invalid discount_type." });
+        }
+
+        const patch = { id: existing.price_rule_id };
+        if (shopifyValueType) patch.value_type = shopifyValueType;
+        if (discount_value != null) {
+          patch.value = `-${Math.abs(Number(discount_value))}`;
+        }
+        if (minimum_order_value !== undefined) {
+          patch.prerequisite_subtotal_range =
+            minimum_order_value && parseFloat(minimum_order_value) > 0
+              ? { greater_than_or_equal_to: String(minimum_order_value) }
+              : null;
+        }
+        if (usage_limit !== undefined) {
+          patch.usage_limit = usage_limit ? parseInt(usage_limit, 10) : null;
+        }
+        if (resolvedEndsAt !== undefined) {
+          patch.ends_at = resolvedEndsAt;
+        }
+
+        const updateRes = await shopifyAdminFetch(
+          shop,
+          adminToken,
+          `price_rules/${existing.price_rule_id}.json`,
+          { method: "PUT", body: JSON.stringify({ price_rule: patch }) },
+        );
+
+        // If the rule vanished upstream, fall through to create.
+        if (updateRes.status !== 404) {
+          if (!updateRes.ok) {
+            const err = await updateRes.json().catch(() => ({}));
+            return res.status(502).json({ error: "Update failed", details: err });
+          }
+          const updated = await updateRes.json().catch(() => ({}));
+          const finalEndsAt = updated?.price_rule?.ends_at || null;
+          const computedActive =
+            !finalEndsAt || new Date(finalEndsAt) > new Date();
+          return res.json({
+            success: true,
+            updated: true,
+            price_rule_id: String(existing.price_rule_id),
+            code: upperCode,
+            is_active: computedActive,
+            ends_at: finalEndsAt,
+          });
+        }
+        existing = null; // fall through to create
+      }
+
+      // ── Create path — require full payload ──────────────────────────────
+      if (discount_type == null || discount_value == null) {
+        return res.status(400).json({
+          error:
+            "Missing required fields for create: discount_type, discount_value",
+        });
+      }
+      const shopifyValueTypeCreate = DISCOUNT_TYPE_MAP[discount_type];
+      if (!shopifyValueTypeCreate) {
+        return res.status(400).json({ error: "Invalid discount_type." });
+      }
+
+      // For create, honour activation flag: deactivate-on-create = past ends_at.
+      let createEndsAt;
+      if (activeExplicit === false) {
+        createEndsAt = "2000-01-01T00:00:00Z";
+      } else if (expiry_date) {
+        createEndsAt = new Date(expiry_date).toISOString();
+      }
 
       const priceRuleBody = {
         price_rule: {
@@ -292,11 +385,11 @@ export default function discountCodesRouter() {
           target_type: "line_item",
           target_selection: "all",
           allocation_method: "across",
-          value_type: shopifyValueType,
-          value: `-${Math.abs(discount_value)}`,
+          value_type: shopifyValueTypeCreate,
+          value: `-${Math.abs(Number(discount_value))}`,
           customer_selection: "all",
           starts_at: new Date().toISOString(),
-          ...(expiry_date && { ends_at: new Date(expiry_date).toISOString() }),
+          ...(createEndsAt && { ends_at: createEndsAt }),
           ...(minimum_order_value && {
             prerequisite_subtotal_range: {
               greater_than_or_equal_to: String(minimum_order_value),
@@ -328,9 +421,7 @@ export default function discountCodesRouter() {
         `price_rules/${price_rule.id}/discount_codes.json`,
         {
           method: "POST",
-          body: JSON.stringify({
-            discount_code: { code: upperCode },
-          }),
+          body: JSON.stringify({ discount_code: { code: upperCode } }),
         },
       );
 
@@ -339,11 +430,8 @@ export default function discountCodesRouter() {
           shop,
           adminToken,
           `price_rules/${price_rule.id}.json`,
-          {
-            method: "DELETE",
-          },
+          { method: "DELETE" },
         );
-
         const errBody = await discountCodeRes.json().catch(() => ({}));
         return res
           .status(502)
@@ -358,6 +446,8 @@ export default function discountCodesRouter() {
         discount_code_id: String(discount_code.id),
         price_rule_id: String(price_rule.id),
         code: discount_code.code,
+        is_active: activeExplicit !== false,
+        ends_at: createEndsAt || null,
       });
     } catch (err) {
       console.error("[MS] POST error:", err);
