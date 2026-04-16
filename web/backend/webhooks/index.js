@@ -30,15 +30,15 @@ async function processOrder(shop, order) {
   }
 
   // Skip orders that were not driven by an affiliate click. Without a
-  // _ht_click_id note attribute the postback function will reject with 400
+  // click_id note attribute the postback function will reject with 400
   // ("Missing required fields"), so there's no point creating a delivery
   // record or wasting retry attempts on it.
   const clickId = order.note_attributes?.find(
-    (a) => a.name === "_ht_click_id"
+    (a) => a.name === "click_id"
   )?.value;
   if (!clickId) {
     if (settings.debug) {
-      console.log(`[MS] Order ${order.id} on ${shop} has no _ht_click_id — not an affiliate order, skipping.`);
+      console.log(`[MS] Order ${order.id} on ${shop} has no click_id — not an affiliate order, skipping.`);
     }
     return;
   }

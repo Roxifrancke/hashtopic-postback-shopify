@@ -9,7 +9,7 @@ const RETRY_DELAYS = [0, 300, 1800, 7200, 86400];
  */
 export function buildPayload(shop, order, settings) {
   const clickId = order.note_attributes?.find(
-    (a) => a.name === "_ht_click_id"
+    (a) => a.name === "click_id"
   )?.value ?? null;
 
   const itemsCount = (order.line_items || []).reduce(
