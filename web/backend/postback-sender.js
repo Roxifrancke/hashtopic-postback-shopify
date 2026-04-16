@@ -103,7 +103,7 @@ export async function sendPayload(payload, settings) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-webhook-secret": webhook_secret || "",
+        "Authorization": `Bearer ${webhook_secret || ""}`,
         "User-Agent": `MyStorefrontPostbackShopify/1.0; https://${payload.store?.site_url || ""}`,
       },
       body,
