@@ -230,6 +230,7 @@ async function enableClickIdEmbed(shop, accessToken) {
 
 // Webhook route — HMAC verified before dispatching
 app.post(shopify.config.webhooks.path, express.text({ type: "*/*" }), async (req, res) => {
+  console.log("🔥 WEBHOOK HIT:", req.headers["x-shopify-topic"]);
   const topic = req.headers["x-shopify-topic"];
   const shop = req.headers["x-shopify-shop-domain"];
   const hmac = req.headers["x-shopify-hmac-sha256"];
