@@ -22,7 +22,7 @@ import { timingSafeEqual } from "crypto";
 import { shopifyApp } from "@shopify/shopify-app-express";
 import { PostgreSQLSessionStorage } from "@shopify/shopify-app-session-storage-postgresql";
 import { ApiVersion } from "@shopify/shopify-api";
-import { restResources } from "@shopify/shopify-api/rest/admin/2024-01";
+import { restResources } from "@shopify/shopify-api/rest/admin/2025-04";
 
 import { getSettings } from "./db.js";
 import settingsRouter from "./routes/settings.js";
@@ -33,6 +33,7 @@ import { pixelScriptRouter } from "./routes/pixel-script.js";
 import discountCodesRouter from "./routes/discount-codes.js";
 import cors from "cors";
 import shopifyWebhooks from "./routes/shopify-webhooks.js";
+import gdprRouter from "./routes/gdpr.js";
 
 const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || "3000", 10);
 const STATIC_PATH =
@@ -44,9 +45,11 @@ const HOST_NAME = (process.env.SHOPIFY_APP_URL || "").replace(/^https?:\/\//, ""
 
 const shopify = shopifyApp({
   api: {
-    apiVersion: ApiVersion.January24,
+    apiVersion: ApiVersion.April25,
     restResources,
-    billing: undefined,
+  },
+  future: {
+    unstable_newEmbeddedAuthStrategy: true,
   },
   hostName: HOST_NAME,
   auth: {
@@ -56,7 +59,6 @@ const shopify = shopifyApp({
   webhooks: {
     path: "/api/webhooks",
   },
-  // Persistent PostgreSQL session storage — sessions survive restarts/redeploys
   sessionStorage: new PostgreSQLSessionStorage(process.env.DATABASE_URL),
 });
 
@@ -92,6 +94,11 @@ app.use(
 );
 
 app.use("/api/webhooks/shopify", shopifyWebhooks);
+
+// GDPR mandatory webhooks — must be registered BEFORE express.json() so the
+// HMAC verifier sees the raw request body. Required by Shopify for any
+// public/unlisted app submission.
+app.use("/api/webhooks/gdpr", gdprRouter);
 
 app.get("/health", (req, res) => res.status(200).send("OK"));
 
@@ -158,7 +165,7 @@ app.get(
 async function enableClickIdEmbed(shop, accessToken) {
   const APP_HANDLE = process.env.SHOPIFY_APP_HANDLE || "mystorefront-postback";
   const BLOCK_HANDLE = "click-id-capture";
-  const API_VERSION = "2024-01";
+  const API_VERSION = "2025-04";
   const headers = {
     "X-Shopify-Access-Token": accessToken,
     "Content-Type": "application/json",
