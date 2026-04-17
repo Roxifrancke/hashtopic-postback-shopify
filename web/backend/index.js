@@ -146,9 +146,10 @@ app.get(
         console.log(`[MS] Access token saved for ${session.shop}`);
 
         // Auto-enable the Click ID Capture app embed in the active theme
-        enableClickIdEmbed(session.shop, session.accessToken).catch((err) =>
-          console.error("[MS] Failed to auto-enable app embed:", err.message)
-        );
+        // TEMP DISABLED — causing OAuth 403
+        // enableClickIdEmbed(session.shop, session.accessToken).catch((err) =>
+        //   console.error("[MS] Failed to auto-enable app embed:", err.message)
+        // );
       }
     } catch (err) {
       console.error("[MS] Error saving access token:", err.message);
@@ -233,8 +234,8 @@ async function enableClickIdEmbed(shop, accessToken) {
 // Webhook route — HMAC verified before dispatching
 app.post(shopify.config.webhooks.path, express.text({ type: "*/*" }), async (req, res) => {
   const topic = req.headers["x-shopify-topic"];
-  const shop  = req.headers["x-shopify-shop-domain"];
-  const hmac  = req.headers["x-shopify-hmac-sha256"];
+  const shop = req.headers["x-shopify-shop-domain"];
+  const hmac = req.headers["x-shopify-hmac-sha256"];
 
   // SECURITY: verify HMAC signature before processing any webhook payload
   if (!hmac || !process.env.SHOPIFY_API_SECRET) {
@@ -291,7 +292,7 @@ app.get("/api/settings/ping", async (req, res) => {
   }
 
   let match = false;
-  try { match = timingSafeEqual(Buffer.from(storedKey), Buffer.from(providedKey)); } catch {}
+  try { match = timingSafeEqual(Buffer.from(storedKey), Buffer.from(providedKey)); } catch { }
   if (!match) {
     return res.status(401).json({ error: "Invalid or missing X-Mystorefront-Key header." });
   }
