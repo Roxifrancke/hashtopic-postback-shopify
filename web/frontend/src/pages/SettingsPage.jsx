@@ -20,7 +20,7 @@ const DEFAULT_SETTINGS = {
   has_secret: false,
   paid_statuses: ["paid"],
   param_names: "click_id",
-  cookie_name: "_ht_click_id",
+  cookie_name: "click_id",
   cookie_days: "30",
   debug: false,
   test_mode: false,
@@ -326,9 +326,9 @@ export default function SettingsPage() {
                 label="Cookie Name"
                 value={settings.cookie_name}
                 onChange={(v) => setSettings((p) => ({ ...p, cookie_name: v }))}
-                helpText="First-party cookie name. Default: _ht_click_id"
+                helpText="First-party cookie name. Default: click_id"
                 autoComplete="off"
-                placeholder="_ht_click_id"
+                placeholder="click_id"
               />
               <TextField
                 label="Cookie Duration (days)"

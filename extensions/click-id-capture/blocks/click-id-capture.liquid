@@ -8,7 +8,7 @@
       var expires = new Date();
       expires.setTime(expires.getTime() + 30 * 24 * 60 * 60 * 1000);
       document.cookie =
-        '_ht_click_id=' +
+        'click_id=' +
         encodeURIComponent(value) +
         '; expires=' + expires.toUTCString() +
         '; path=/' +
@@ -16,7 +16,7 @@
     }
 
     function getCookie() {
-      var match = document.cookie.match(/(^|; )_ht_click_id=([^;]*)/);
+      var match = document.cookie.match(/(^|; )click_id=([^;]*)/);
       return match ? decodeURIComponent(match[2]) : null;
     }
 
@@ -25,7 +25,7 @@
         fetch('/cart/update.js', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ attributes: { _ht_click_id: value } })
+          body: JSON.stringify({ attributes: { click_id: value } })
         });
       } catch (e) {}
     }

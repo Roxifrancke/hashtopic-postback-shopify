@@ -9,7 +9,7 @@ const RETRY_DELAYS = [0, 300, 1800, 7200, 86400];
  */
 export function buildPayload(shop, order, settings) {
   const clickId = order.note_attributes?.find(
-    (a) => a.name === "_ht_click_id"
+    (a) => a.name === "click_id"
   )?.value ?? null;
 
   const itemsCount = (order.line_items || []).reduce(
@@ -99,11 +99,17 @@ export async function sendPayload(payload, settings) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
 
+    console.log("=== DEBUG POSTBACK ===");
+    console.log("Webhook URL:", webhook_url);
+    console.log("Webhook Secret:", webhook_secret);
+    console.log("Payload click_id:", payload.click_id);
+    console.log("======================");
+
     const res = await fetch(webhook_url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-webhook-secret": webhook_secret || "",
+        "Authorization": `Bearer ${webhook_secret || ""}`,
         "User-Agent": `MyStorefrontPostbackShopify/1.0; https://${payload.store?.site_url || ""}`,
       },
       body,

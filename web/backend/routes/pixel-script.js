@@ -20,7 +20,7 @@ pixelScriptRouter.get("/:shop/capture.js", async (req, res) => {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  const cookieName = settings?.cookie_name || "_ht_click_id";
+  const cookieName = settings?.cookie_name || "click_id";
   const cookieDays = Math.min(365, Math.max(1, parseInt(settings?.cookie_days || 30, 10)));
 
   const script = generateCaptureScript(paramNames, cookieName, cookieDays);
@@ -84,7 +84,7 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          attributes: { '_ht_click_id': clickId }
+          attributes: { 'click_id': clickId }
         })
       }).catch(function() {});
     } catch(e) {}

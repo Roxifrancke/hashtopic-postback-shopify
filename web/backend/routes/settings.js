@@ -49,7 +49,7 @@ export default function settingsRouter(shopify) {
           has_secret: false,
           paid_statuses: ["paid"],
           param_names: "click_id",
-          cookie_name: "_ht_click_id",
+          cookie_name: "click_id",
           cookie_days: 30,
           debug: false,
           test_mode: false,
