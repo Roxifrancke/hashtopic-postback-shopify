@@ -1,8 +1,8 @@
 export async function registerWebhooks({ shop, accessToken }) {
     const topics = ["discounts/create", "discounts/update", "discounts/delete"];
 
-    const webhookUrl =
-        "https://hashtopic-postback-shopify.onrender.com/api/webhooks/shopify/discounts";
+    const baseUrl = (process.env.SHOPIFY_APP_URL || "").replace(/\/$/, "");
+    const webhookUrl = `${baseUrl}/api/webhooks/shopify/discounts`;
 
     for (const topic of topics) {
         try {
