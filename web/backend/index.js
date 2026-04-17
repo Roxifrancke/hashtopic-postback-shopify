@@ -48,9 +48,6 @@ const shopify = shopifyApp({
     apiVersion: ApiVersion.April25,
     restResources,
   },
-  future: {
-    unstable_newEmbeddedAuthStrategy: true,
-  },
   hostName: HOST_NAME,
   auth: {
     path: "/api/auth",
