@@ -33,6 +33,7 @@ import { pixelScriptRouter } from "./routes/pixel-script.js";
 import discountCodesRouter from "./routes/discount-codes.js";
 import cors from "cors";
 import shopifyWebhooks from "./routes/shopify-webhooks.js";
+import gdprRouter from "./routes/gdpr.js";
 
 const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || "3000", 10);
 const STATIC_PATH =
@@ -92,6 +93,11 @@ app.use(
 );
 
 app.use("/api/webhooks/shopify", shopifyWebhooks);
+
+// GDPR mandatory webhooks — must be registered BEFORE express.json() so the
+// HMAC verifier sees the raw request body. Required by Shopify for any
+// public/unlisted app submission.
+app.use("/api/webhooks/gdpr", gdprRouter);
 
 app.get("/health", (req, res) => res.status(200).send("OK"));
 
