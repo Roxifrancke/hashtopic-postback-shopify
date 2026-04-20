@@ -54,14 +54,10 @@ const shopify = shopifyApp({
     callbackPath: "/api/auth/callback",
   },
 
-  webhooks: {
-    path: "/api/webhooks",
-  },
+  // ❌ REMOVE webhooks config completely
 
-  // 🔥 THIS IS THE REAL FIX
   useOnlineTokens: false,
 
-  // 🔥 AND THIS
   hooks: {
     afterAuth: async () => {},
   },
@@ -264,7 +260,7 @@ async function registerWebhooks(shop, accessToken) {
 }
 
 // Webhook route — HMAC verified before dispatching
-app.post(shopify.config.webhooks.path, express.text({ type: "*/*" }), async (req, res) => {
+app.post("/api/webhooks", express.text({ type: "*/*" }), async (req, res) => {
   console.log("🔥 WEBHOOK HIT:", req.headers["x-shopify-topic"]);
   const topic = req.headers["x-shopify-topic"];
   const shop = req.headers["x-shopify-shop-domain"];
