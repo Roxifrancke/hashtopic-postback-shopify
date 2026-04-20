@@ -1,0 +1,29 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "80133e649bd215aa494b9e54f91aa0f3"
+name = "MyStorefront Postback"
+application_url = "https://hashtopic-postback-shopify.onrender.com"
+embedded = true
+
+[webhooks]
+api_version = "2025-04"
+
+  [[webhooks.subscriptions]]
+  topics = ["orders/paid", "orders/updated"]
+  uri = "/api/webhooks"
+
+  [webhooks.privacy_compliance]
+  customer_deletion_url = "https://hashtopic-postback-shopify.onrender.com/api/webhooks/gdpr/customers_redact"
+  customer_data_request_url = "https://hashtopic-postback-shopify.onrender.com/api/webhooks/gdpr/customers_data_request"
+  shop_deletion_url = "https://hashtopic-postback-shopify.onrender.com/api/webhooks/gdpr/shop_redact"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_customers,read_price_rules,write_price_rules,read_discounts,read_orders,write_orders,read_products,read_script_tags,write_script_tags,read_themes,write_themes"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [
+  "https://hashtopic-postback-shopify.onrender.com/api/auth/callback"
+]
