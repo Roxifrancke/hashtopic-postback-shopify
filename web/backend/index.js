@@ -53,10 +53,19 @@ const shopify = shopifyApp({
     path: "/api/auth",
     callbackPath: "/api/auth/callback",
   },
+
   webhooks: {
     path: "/api/webhooks",
-    topics: {}, // 🔥 CRITICAL FIX
   },
+
+  // 🔥 THIS IS THE REAL FIX
+  useOnlineTokens: false,
+
+  // 🔥 AND THIS
+  hooks: {
+    afterAuth: async () => {},
+  },
+
   sessionStorage: new PostgreSQLSessionStorage(process.env.DATABASE_URL),
 });
 
