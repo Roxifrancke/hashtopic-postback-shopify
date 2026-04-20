@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la *.toml shopify*)",
+      "Bash(find . -maxdepth 3 -name \"*.toml\")"
+    ]
+  }
+}

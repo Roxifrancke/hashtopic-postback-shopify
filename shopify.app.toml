@@ -4,7 +4,7 @@ application_url = "https://hashtopic-postback-shopify.onrender.com"
 embedded = true
 
 [access_scopes]
-scopes = "read_orders,read_customers,read_script_tags,write_script_tags,read_themes,write_themes,read_price_rules,write_price_rules"
+scopes = "read_customers,read_orders,write_orders,read_products,read_themes,write_themes,read_script_tags,write_script_tags,read_price_rules,write_price_rules,read_discounts"
 
 [auth]
 redirect_urls = [
@@ -12,7 +12,7 @@ redirect_urls = [
 ]
 
 [webhooks]
-api_version = "2024-01"
+api_version = "2025-04"
 
   [[webhooks.subscriptions]]
   topics = ["orders/paid", "orders/updated"]
