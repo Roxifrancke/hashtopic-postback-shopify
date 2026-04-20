@@ -54,12 +54,8 @@ const shopify = shopifyApp({
     callbackPath: "/api/auth/callback",
   },
 
-  // ❌ REMOVE webhooks config completely
-
-  useOnlineTokens: false,
-
-  hooks: {
-    afterAuth: async () => {},
+  webhooks: {
+    path: "/api/webhooks", // ✅ REQUIRED
   },
 
   sessionStorage: new PostgreSQLSessionStorage(process.env.DATABASE_URL),
@@ -147,7 +143,6 @@ app.get(
         const { saveAccessToken } = await import("./db.js");
         await saveAccessToken(session.shop, session.accessToken);
         console.log(`[MS] Access token saved for ${session.shop}`);
-        await registerWebhooks(session.shop, session.accessToken);
 
         // Auto-enable the Click ID Capture app embed in the active theme
         // TEMP DISABLED — causing OAuth 403
@@ -233,30 +228,6 @@ async function enableClickIdEmbed(shop, accessToken) {
     throw new Error(`asset PUT failed ${putRes.status}: ${body}`);
   }
   console.log(`[MS] App embed enabled in theme "${activeTheme.name}" for ${shop}`);
-}
-
-async function registerWebhooks(shop, accessToken) {
-  try {
-    const res = await fetch(`https://${shop}/admin/api/2025-04/webhooks.json`, {
-      method: "POST",
-      headers: {
-        "X-Shopify-Access-Token": accessToken,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        webhook: {
-          topic: "orders/paid",
-          address: "https://hashtopic-postback-shopify.onrender.com/api/webhooks",
-          format: "json",
-        },
-      }),
-    });
-
-    const data = await res.text();
-    console.log("✅ Webhook registered:", data);
-  } catch (err) {
-    console.error("❌ Webhook registration failed:", err.message);
-  }
 }
 
 // Webhook route — HMAC verified before dispatching
