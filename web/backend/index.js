@@ -55,6 +55,7 @@ const shopify = shopifyApp({
   },
   webhooks: {
     path: "/api/webhooks",
+    topics: {}, // 🔥 CRITICAL FIX
   },
   sessionStorage: new PostgreSQLSessionStorage(process.env.DATABASE_URL),
 });
