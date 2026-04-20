@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(ls -la *.toml shopify*)",
-      "Bash(find . -maxdepth 3 -name \"*.toml\")"
+      "Bash(find . -maxdepth 3 -name \"*.toml\")",
+      "Bash(ls -la *.md)",
+      "Bash(find . -maxdepth 4 -name \"*.md\" -not -path \"*/node_modules/*\")"
     ]
   }
 }
