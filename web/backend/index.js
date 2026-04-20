@@ -101,6 +101,22 @@ app.use("/api/webhooks/gdpr", gdprRouter);
 
 app.get("/health", (req, res) => res.status(200).send("OK"));
 
+// Public policy documents — required for App Store / unlisted submission.
+// Served as plain text so crawlers and reviewers can read them directly.
+function servePolicyDoc(filename) {
+  return (_req, res) => {
+    try {
+      const body = readFileSync(join(process.cwd(), filename), "utf8");
+      res.set("Content-Type", "text/plain; charset=utf-8").send(body);
+    } catch (err) {
+      console.error(`[MS] Failed to serve ${filename}:`, err.message);
+      res.status(404).send("Not found");
+    }
+  };
+}
+app.get("/privacy", servePolicyDoc("PRIVACY.md"));
+app.get("/security", servePolicyDoc("SECURITY.md"));
+
 // SECURITY: validate redirectUri — only allow relative paths or known Shopify domains
 app.get("/exitiframe", (req, res) => {
   const redirectUri = req.query.redirectUri;

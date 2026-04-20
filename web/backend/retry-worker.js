@@ -4,6 +4,7 @@ import {
   getDeliveryById,
   markDeliverySent,
   markDeliveryFailed,
+  purgeOldDeliveries,
 } from "./db.js";
 import { getSettings } from "./db.js";
 import { sendPayload, nextRetryAt, MAX_ATTEMPTS } from "./postback-sender.js";
@@ -26,7 +27,17 @@ export function startRetryWorker() {
     }
   });
 
-  console.log("[MS] Retry worker started (runs every minute).");
+  // Nightly retention purge: drop completed delivery rows older than 90 days.
+  cron.schedule("0 3 * * *", async () => {
+    try {
+      const n = await purgeOldDeliveries(90);
+      if (n > 0) console.log(`[MS Retention] Purged ${n} delivery rows older than 90 days.`);
+    } catch (err) {
+      console.error("[MS Retention] Purge failed:", err);
+    }
+  });
+
+  console.log("[MS] Retry worker started (retries: every minute; retention: daily 03:00 UTC).");
 }
 
 async function retryDelivery(delivery) {

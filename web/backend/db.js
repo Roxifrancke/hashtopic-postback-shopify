@@ -264,5 +264,25 @@ export async function getAccessToken(shop) {
   return rows[0]?.shopify_admin_token || null;
 }
 
+// ── Retention / GDPR ────────────────────────────────────────────────────────
+
+export async function purgeOldDeliveries(days = 90) {
+  await ensureReady();
+  const { rowCount } = await pool.query(
+    `DELETE FROM deliveries
+     WHERE updated_at < NOW() - ($1 || ' days')::interval
+       AND status IN ('sent', 'failed')`,
+    [days]
+  );
+  return rowCount;
+}
+
+export async function deleteShopData(shop) {
+  await ensureReady();
+  const { rowCount: d } = await pool.query("DELETE FROM deliveries WHERE shop = $1", [shop]);
+  const { rowCount: s } = await pool.query("DELETE FROM settings WHERE shop = $1", [shop]);
+  return { deliveries: d, settings: s };
+}
+
 export default pool;
 export { pool as db };
