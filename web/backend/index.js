@@ -21,7 +21,7 @@ import { readFileSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import { shopifyApp } from "@shopify/shopify-app-express";
 import { PostgreSQLSessionStorage } from "@shopify/shopify-app-session-storage-postgresql";
-import { ApiVersion } from "@shopify/shopify-api";
+import { ApiVersion, RequestedTokenType } from "@shopify/shopify-api";
 import { restResources } from "@shopify/shopify-api/rest/admin/2025-04";
 
 import { getSettings } from "./db.js";
@@ -399,20 +399,56 @@ app.use((req, res, next) => {
 });
 app.use(express.static(STATIC_PATH, { index: false }));
 
-// ensureInstalledOnShop triggers Token Exchange when the embedded app loads
-// with a Shopify session id_token. That's how we obtain an (expiring) offline
-// Admin API token under the new embedded auth strategy. We only apply it to
-// the root/app-shell routes — not asset routes — and we skip it when there's
-// no `shop` query param (e.g. the app is being opened directly rather than
-// from within Shopify admin).
-function maybeEnsureInstalled(req, res, next) {
-  if (!req.query.shop && !req.query.host) {
+// When the embedded app loads we get `id_token` (a Shopify session JWT) on
+// the querystring. Exchange it for an offline Admin API token and store it
+// in session storage + settings cache. This is the only way to get an
+// expiring offline token — the classic OAuth flow issues non-expiring
+// tokens which Shopify no longer accepts on the Admin API.
+async function tokenExchangeMiddleware(req, res, next) {
+  const shopParam = req.query.shop;
+  const idToken = req.query.id_token;
+  if (typeof shopParam !== "string" || typeof idToken !== "string") {
     return next();
   }
-  return shopify.ensureInstalledOnShop()(req, res, next);
+  const shop = shopify.api.utils.sanitizeShop(shopParam);
+  if (!shop) return next();
+
+  try {
+    // Skip if we already have a session whose token verifies against shop.json.
+    const sessionId = shopify.api.session.getOfflineId(shop);
+    const existing =
+      await shopify.config.sessionStorage.loadSession(sessionId);
+    const stillValid =
+      existing?.accessToken &&
+      (!existing.expires || new Date(existing.expires) > new Date());
+    if (stillValid) {
+      return next();
+    }
+
+    const { session } = await shopify.api.auth.tokenExchange({
+      shop,
+      sessionToken: idToken,
+      requestedTokenType: RequestedTokenType.OfflineAccessToken,
+    });
+
+    await shopify.config.sessionStorage.storeSession(session);
+
+    const { saveAccessToken } = await import("./db.js");
+    await saveAccessToken(shop, session.accessToken).catch(() => {});
+
+    console.log(
+      `[MS] Token exchange stored offline session for ${shop} (scope=${session.scope})`,
+    );
+  } catch (err) {
+    console.error(
+      `[MS] Token exchange failed for ${shopParam}:`,
+      err?.message || err,
+    );
+  }
+  return next();
 }
 
-app.use("/*", maybeEnsureInstalled, async (_req, res) => {
+app.use("/*", tokenExchangeMiddleware, async (_req, res) => {
   return res.set("Content-Type", "text/html").send(
     readFileSync(join(STATIC_PATH, "index.html"))
   );
