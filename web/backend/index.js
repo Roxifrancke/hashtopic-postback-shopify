@@ -124,7 +124,12 @@ function servePolicyDoc(filename) {
 app.get("/privacy", servePolicyDoc("PRIVACY.md"));
 app.get("/security", servePolicyDoc("SECURITY.md"));
 
-// SECURITY: validate redirectUri — only allow relative paths or known Shopify domains
+// SECURITY: validate redirectUri — only allow relative paths, known Shopify
+// domains, or our own app host (which Shopify library generates when it wants
+// us to exit the iframe and hit /api/auth to complete OAuth).
+const OWN_HOST = (process.env.SHOPIFY_APP_URL || "")
+  .replace(/^https?:\/\//, "")
+  .replace(/\/$/, "");
 app.get("/exitiframe", (req, res) => {
   const redirectUri = req.query.redirectUri;
   let sanitized = "/";
@@ -133,7 +138,9 @@ app.get("/exitiframe", (req, res) => {
     const decoded = decodeURIComponent(String(redirectUri));
     const isRelative = decoded.startsWith("/") && !decoded.startsWith("//");
     const isShopifyDomain = /^https:\/\/([a-zA-Z0-9-]+\.myshopify\.com|admin\.shopify\.com)(\/|$)/.test(decoded);
-    if (isRelative || isShopifyDomain) {
+    const isOwnHost =
+      !!OWN_HOST && decoded.startsWith(`https://${OWN_HOST}/`);
+    if (isRelative || isShopifyDomain || isOwnHost) {
       sanitized = decoded;
     }
   }
