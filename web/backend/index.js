@@ -318,7 +318,7 @@ app.get("/api/settings/ping", async (req, res) => {
 
 // ── MyStorefront-facing discount codes — also BEFORE session middleware ─────
 // Called by MyStorefront's servers using X-Mystorefront-Key auth (handled inside router).
-app.use("/api/discount-codes", discountCodesRouter());
+app.use("/api/discount-codes", discountCodesRouter(shopify));
 
 // SECURITY: Session middleware — verifies Shopify JWT signature before trusting shop identity
 app.use("/api/*", async (req, res, next) => {

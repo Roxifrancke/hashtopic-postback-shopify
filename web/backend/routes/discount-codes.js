@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { timingSafeEqual } from "crypto";
-import { getSettings, getSettingsByApiKey } from "../db.js";
+import { getSettings, getSettingsByApiKey, saveAccessToken } from "../db.js";
 
 /**
  * Constant-time string comparison to prevent timing attacks.
@@ -24,7 +24,7 @@ const SHOPIFY_TYPE_TO_MS = {
 };
 
 async function shopifyAdminFetch(shop, adminToken, path, options = {}) {
-  const url = `https://${shop}/admin/api/2024-01/${path}`;
+  const url = `https://${shop}/admin/api/2025-04/${path}`;
   const res = await fetch(url, {
     ...options,
     headers: {
@@ -34,6 +34,27 @@ async function shopifyAdminFetch(shop, adminToken, path, options = {}) {
     },
   });
   return res;
+}
+
+// Retrieve the offline admin token for a shop. Prefer settings.shopify_admin_token
+// (cached during OAuth callback). Fall back to Shopify's session storage, which
+// is the source of truth once managed install completes even if the callback
+// side-effect didn't run. Caches back into settings on successful lookup.
+async function resolveAdminToken(shopify, shop, settings) {
+  const cached = settings?.shopify_admin_token || "";
+  if (cached) return cached;
+
+  try {
+    const sessions = await shopify.config.sessionStorage.findSessionsByShop(shop);
+    const offline = (sessions || []).find((s) => s && !s.isOnline && s.accessToken);
+    if (offline?.accessToken) {
+      await saveAccessToken(shop, offline.accessToken);
+      return offline.accessToken;
+    }
+  } catch (err) {
+    console.error("[MS] resolveAdminToken lookup failed:", err.message);
+  }
+  return "";
 }
 
 /**
@@ -79,7 +100,7 @@ async function findExistingDiscountCode(shop, adminToken, code) {
   return null;
 }
 
-export default function discountCodesRouter() {
+export default function discountCodesRouter(shopify) {
   const router = Router();
 
   // Resolve {shop, settings} from either ?shop=... or the API key alone.
@@ -133,7 +154,7 @@ export default function discountCodesRouter() {
     }
 
     res.locals.shop = shop;
-    res.locals.adminToken = settings.shopify_admin_token || "";
+    res.locals.adminToken = await resolveAdminToken(shopify, shop, settings);
     next();
   });
 
