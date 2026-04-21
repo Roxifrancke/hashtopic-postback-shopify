@@ -194,12 +194,65 @@ export default function discountCodesRouter(shopify) {
     }
 
     res.locals.shop = shop;
+    res.locals.settings = settings;
     const adminToken = await resolveAdminToken(shopify, shop, settings);
     res.locals.adminToken = adminToken;
     res.locals.adminFetch = adminToken
       ? makeAdminFetcher(shopify, shop, adminToken)
       : null;
     next();
+  });
+
+  // ── GET /api/discount-codes/diag — diagnostic (authed) ─────────────────
+  // Reports what's in session storage vs. the cached settings token, and
+  // does a live probe of /shop.json so we can see Shopify's actual response.
+  router.get("/diag", async (req, res) => {
+    const shop = res.locals.shop;
+    const settings = res.locals.settings;
+    const prefix = (t) => (t ? `${t.slice(0, 6)}…(${t.length})` : null);
+
+    let sessionSummary = [];
+    try {
+      const sessions =
+        (await shopify.config.sessionStorage.findSessionsByShop(shop)) || [];
+      sessionSummary = sessions.map((s) => ({
+        id: s?.id || null,
+        isOnline: !!s?.isOnline,
+        expires: s?.expires || null,
+        scope: s?.scope || null,
+        token: prefix(s?.accessToken || ""),
+      }));
+    } catch (err) {
+      sessionSummary = [{ error: err.message }];
+    }
+
+    const cachedPrefix = prefix(settings?.shopify_admin_token || "");
+    const resolvedPrefix = prefix(res.locals.adminToken || "");
+
+    let probeStatus = null;
+    let probeBody = null;
+    if (res.locals.adminToken) {
+      try {
+        const probe = await rawShopifyAdminFetch(
+          shop,
+          res.locals.adminToken,
+          "shop.json?fields=id,name,myshopify_domain",
+        );
+        probeStatus = probe.status;
+        probeBody = await probe.text();
+        if (probeBody.length > 400) probeBody = probeBody.slice(0, 400) + "…";
+      } catch (err) {
+        probeBody = `probe error: ${err.message}`;
+      }
+    }
+
+    return res.json({
+      shop,
+      cached_settings_token: cachedPrefix,
+      resolved_token: resolvedPrefix,
+      sessions: sessionSummary,
+      shop_json_probe: { status: probeStatus, body: probeBody },
+    });
   });
 
   // ── GET /api/discount-codes  (and /coupons alias) — list all codes ─────
