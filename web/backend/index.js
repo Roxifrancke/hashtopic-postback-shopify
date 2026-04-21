@@ -414,14 +414,55 @@ async function tokenExchangeMiddleware(req, res, next) {
   if (!shop) return next();
 
   try {
-    // Skip if we already have a session whose token verifies against shop.json.
+    // Skip if we already have a session whose token has a future expiry.
+    // We intentionally DO NOT accept non-expiring sessions as valid — Shopify
+    // now refuses them on the Admin API, so we should always re-exchange
+    // until we get one with an expiry.
     const sessionId = shopify.api.session.getOfflineId(shop);
     const existing =
       await shopify.config.sessionStorage.loadSession(sessionId);
-    const stillValid =
-      existing?.accessToken &&
-      (!existing.expires || new Date(existing.expires) > new Date());
-    if (stillValid) {
+    const expiresInFuture =
+      existing?.expires && new Date(existing.expires) > new Date();
+    if (existing?.accessToken && expiresInFuture) {
+      return next();
+    }
+
+    // Call the token-exchange endpoint ourselves so we can log the raw
+    // response. The library wrapper hides the body which makes it hard to
+    // tell whether Shopify is returning `expires_in` or not.
+    const body = {
+      client_id: process.env.SHOPIFY_API_KEY,
+      client_secret: process.env.SHOPIFY_API_SECRET,
+      grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+      subject_token: idToken,
+      subject_token_type: "urn:ietf:params:oauth:token-type:id_token",
+      requested_token_type:
+        "urn:shopify:params:oauth:token-type:offline-access-token",
+    };
+    const tokRes = await fetch(
+      `https://${shop}/admin/oauth/access_token`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    const tokJson = await tokRes.json().catch(() => ({}));
+    const safeLog = {
+      ...tokJson,
+      access_token: tokJson.access_token
+        ? `${String(tokJson.access_token).slice(0, 8)}…`
+        : undefined,
+    };
+    console.log(
+      `[MS] token-exchange raw response (status=${tokRes.status}):`,
+      JSON.stringify(safeLog),
+    );
+
+    if (!tokRes.ok || !tokJson.access_token) {
       return next();
     }
 
@@ -437,7 +478,7 @@ async function tokenExchangeMiddleware(req, res, next) {
     await saveAccessToken(shop, session.accessToken).catch(() => {});
 
     console.log(
-      `[MS] Token exchange stored offline session for ${shop} (scope=${session.scope})`,
+      `[MS] Token exchange stored offline session for ${shop} (scope=${session.scope}, expires=${session.expires || "null"})`,
     );
   } catch (err) {
     console.error(
