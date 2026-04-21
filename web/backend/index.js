@@ -47,6 +47,13 @@ const shopify = shopifyApp({
   api: {
     apiVersion: ApiVersion.April25,
     restResources,
+    future: {
+      // Switch from Authorization Code Grant to Token Exchange.
+      // Shopify now refuses to issue non-expiring offline tokens, which the
+      // classic OAuth flow was producing — the only way to get a usable
+      // Admin API token for an embedded app is via token exchange.
+      unstable_newEmbeddedAuthStrategy: true,
+    },
   },
   hostName: HOST_NAME,
   auth: {
@@ -384,7 +391,21 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.static(STATIC_PATH, { index: false }));
-app.use("/*", async (_req, res) => {
+
+// ensureInstalledOnShop triggers Token Exchange when the embedded app loads
+// with a Shopify session id_token. That's how we obtain an (expiring) offline
+// Admin API token under the new embedded auth strategy. We only apply it to
+// the root/app-shell routes — not asset routes — and we skip it when there's
+// no `shop` query param (e.g. the app is being opened directly rather than
+// from within Shopify admin).
+function maybeEnsureInstalled(req, res, next) {
+  if (!req.query.shop && !req.query.host) {
+    return next();
+  }
+  return shopify.ensureInstalledOnShop()(req, res, next);
+}
+
+app.use("/*", maybeEnsureInstalled, async (_req, res) => {
   return res.set("Content-Type", "text/html").send(
     readFileSync(join(STATIC_PATH, "index.html"))
   );
