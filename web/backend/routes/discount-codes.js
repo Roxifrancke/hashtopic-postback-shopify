@@ -1,6 +1,10 @@
 import { Router } from "express";
 import { timingSafeEqual } from "crypto";
-import { getSettings, getSettingsByApiKey, saveAccessToken } from "../db.js";
+import {
+  getSettings,
+  getSettingsByApiKey,
+  saveAccessToken,
+} from "../db.js";
 
 /**
  * Constant-time string comparison to prevent timing attacks.
@@ -23,9 +27,9 @@ const SHOPIFY_TYPE_TO_MS = {
   fixed_amount: "fixed_amount",
 };
 
-async function shopifyAdminFetch(shop, adminToken, path, options = {}) {
+async function rawShopifyAdminFetch(shop, adminToken, path, options = {}) {
   const url = `https://${shop}/admin/api/2025-04/${path}`;
-  const res = await fetch(url, {
+  return fetch(url, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -33,41 +37,79 @@ async function shopifyAdminFetch(shop, adminToken, path, options = {}) {
       ...(options.headers || {}),
     },
   });
-  return res;
 }
 
-// Retrieve the offline admin token for a shop. Prefer settings.shopify_admin_token
-// (cached during OAuth callback). Fall back to Shopify's session storage, which
-// is the source of truth once managed install completes even if the callback
-// side-effect didn't run. Caches back into settings on successful lookup.
-async function resolveAdminToken(shopify, shop, settings) {
-  const cached = settings?.shopify_admin_token || "";
-  if (cached) return cached;
-
+// Look up the newest offline session in Shopify's session storage. Prefer the
+// session-storage token over settings.shopify_admin_token because uninstall/
+// reinstall leaves the old cached token in `settings` while the new token
+// lives only in the session store.
+async function lookupSessionToken(shopify, shop) {
   try {
     const sessions = await shopify.config.sessionStorage.findSessionsByShop(shop);
-    const offline = (sessions || []).find((s) => s && !s.isOnline && s.accessToken);
-    if (offline?.accessToken) {
-      await saveAccessToken(shop, offline.accessToken);
-      return offline.accessToken;
-    }
+    const offlineSessions = (sessions || []).filter(
+      (s) => s && !s.isOnline && s.accessToken,
+    );
+    if (offlineSessions.length === 0) return "";
+    // Pick the newest session — handles the case where reinstall created a
+    // new session alongside stale ones from a previous install.
+    offlineSessions.sort((a, b) => {
+      const aTime = a.expires ? new Date(a.expires).getTime() : 0;
+      const bTime = b.expires ? new Date(b.expires).getTime() : 0;
+      return bTime - aTime;
+    });
+    return offlineSessions[0].accessToken || "";
   } catch (err) {
-    console.error("[MS] resolveAdminToken lookup failed:", err.message);
+    console.error("[MS] lookupSessionToken failed:", err.message);
+    return "";
   }
-  return "";
+}
+
+// Resolve the offline admin token. Always prefers session-storage (source of
+// truth post-install) and only falls back to the cached settings token when
+// storage is empty. Caches successful lookups back into settings.
+async function resolveAdminToken(shopify, shop, settings) {
+  const fromStorage = await lookupSessionToken(shopify, shop);
+  if (fromStorage) {
+    if (fromStorage !== settings?.shopify_admin_token) {
+      await saveAccessToken(shop, fromStorage).catch(() => {});
+    }
+    return fromStorage;
+  }
+  return settings?.shopify_admin_token || "";
+}
+
+// Admin fetch with automatic 401 recovery: on 401, clear the cached token,
+// re-resolve from session storage, and retry once. Keeps the route handlers
+// simple — callers still see either a success response or a real failure.
+function makeAdminFetcher(shopify, shop, initialToken) {
+  let token = initialToken;
+  return async function adminFetch(path, options = {}) {
+    let res = await rawShopifyAdminFetch(shop, token, path, options);
+    if (res.status !== 401) return res;
+
+    const refreshed = await lookupSessionToken(shopify, shop);
+    if (!refreshed || refreshed === token) {
+      // Clear the stale cache so the next request doesn't keep retrying this
+      // same dead token via the settings fallback.
+      await saveAccessToken(shop, "").catch(() => {});
+      return res;
+    }
+    token = refreshed;
+    await saveAccessToken(shop, refreshed).catch(() => {});
+    res = await rawShopifyAdminFetch(shop, token, path, options);
+    return res;
+  };
 }
 
 /**
  * Check if a discount code already exists by searching price rules with the same title.
  * Returns the existing price rule and discount code if found, null otherwise.
  */
-async function findExistingDiscountCode(shop, adminToken, code) {
+async function findExistingDiscountCode(adminFetch, code) {
   const upperCode = code.toUpperCase();
 
   // Fetch price rules and look for one with a matching title
-  const priceRulesRes = await shopifyAdminFetch(
-    shop,
-    adminToken,
+  const priceRulesRes = await adminFetch(
     "price_rules.json?limit=250&fields=id,title",
   );
 
@@ -82,9 +124,7 @@ async function findExistingDiscountCode(shop, adminToken, code) {
 
   // Check each matching rule for a discount code with the same code
   for (const rule of matchingRules) {
-    const codesRes = await shopifyAdminFetch(
-      shop,
-      adminToken,
+    const codesRes = await adminFetch(
       `price_rules/${rule.id}/discount_codes.json?limit=250`,
     );
     if (!codesRes.ok) continue;
@@ -154,25 +194,26 @@ export default function discountCodesRouter(shopify) {
     }
 
     res.locals.shop = shop;
-    res.locals.adminToken = await resolveAdminToken(shopify, shop, settings);
+    const adminToken = await resolveAdminToken(shopify, shop, settings);
+    res.locals.adminToken = adminToken;
+    res.locals.adminFetch = adminToken
+      ? makeAdminFetcher(shopify, shop, adminToken)
+      : null;
     next();
   });
 
   // ── GET /api/discount-codes  (and /coupons alias) — list all codes ─────
   router.get(["/", "/coupons"], async (req, res) => {
-    const shop = res.locals.shop;
-    const adminToken = res.locals.adminToken;
+    const adminFetch = res.locals.adminFetch;
 
-    if (!adminToken) {
+    if (!adminFetch) {
       return res
         .status(400)
         .json({ error: "Shopify Admin API token not configured." });
     }
 
     try {
-      const priceRulesRes = await shopifyAdminFetch(
-        shop,
-        adminToken,
+      const priceRulesRes = await adminFetch(
         "price_rules.json?limit=250&fields=id,title,value_type,value,customer_selection,prerequisite_subtotal_range,ends_at,usage_limit",
       );
 
@@ -187,9 +228,7 @@ export default function discountCodesRouter(shopify) {
       const now = new Date();
 
       for (const rule of priceRules) {
-        const codesRes = await shopifyAdminFetch(
-          shop,
-          adminToken,
+        const codesRes = await adminFetch(
           `price_rules/${rule.id}/discount_codes.json?limit=250&fields=id,code,usage_count`,
         );
 
@@ -233,10 +272,9 @@ export default function discountCodesRouter(shopify) {
   // upstream edge function can sync activation state without a separate route.
   // Pass `action: "delete"` to remove the price rule entirely (idempotent).
   router.post("/", async (req, res) => {
-    const shop = res.locals.shop;
-    const adminToken = res.locals.adminToken;
+    const adminFetch = res.locals.adminFetch;
 
-    if (!adminToken) {
+    if (!adminFetch) {
       return res
         .status(400)
         .json({ error: "Shopify Admin API token not configured." });
@@ -276,7 +314,7 @@ export default function discountCodesRouter(shopify) {
       if (priceRuleIdFromBody && /^\d+$/.test(String(priceRuleIdFromBody))) {
         existing = { price_rule_id: String(priceRuleIdFromBody) };
       } else {
-        existing = await findExistingDiscountCode(shop, adminToken, upperCode);
+        existing = await findExistingDiscountCode(adminFetch, upperCode);
       }
 
       // ── Action: delete — remove the price rule (idempotent) ─────────────
@@ -284,9 +322,7 @@ export default function discountCodesRouter(shopify) {
         if (!existing) {
           return res.json({ success: true, already_deleted: true, code: upperCode });
         }
-        const deleteRes = await shopifyAdminFetch(
-          shop,
-          adminToken,
+        const deleteRes = await adminFetch(
           `price_rules/${existing.price_rule_id}.json`,
           { method: "DELETE" },
         );
@@ -366,9 +402,7 @@ export default function discountCodesRouter(shopify) {
           patch.ends_at = resolvedEndsAt;
         }
 
-        const updateRes = await shopifyAdminFetch(
-          shop,
-          adminToken,
+        const updateRes = await adminFetch(
           `price_rules/${existing.price_rule_id}.json`,
           { method: "PUT", body: JSON.stringify({ price_rule: patch }) },
         );
@@ -439,9 +473,7 @@ export default function discountCodesRouter(shopify) {
         },
       };
 
-      const priceRuleRes = await shopifyAdminFetch(
-        shop,
-        adminToken,
+      const priceRuleRes = await adminFetch(
         "price_rules.json",
         { method: "POST", body: JSON.stringify(priceRuleBody) },
       );
@@ -455,9 +487,7 @@ export default function discountCodesRouter(shopify) {
 
       const { price_rule } = await priceRuleRes.json();
 
-      const discountCodeRes = await shopifyAdminFetch(
-        shop,
-        adminToken,
+      const discountCodeRes = await adminFetch(
         `price_rules/${price_rule.id}/discount_codes.json`,
         {
           method: "POST",
@@ -466,9 +496,7 @@ export default function discountCodesRouter(shopify) {
       );
 
       if (!discountCodeRes.ok) {
-        await shopifyAdminFetch(
-          shop,
-          adminToken,
+        await adminFetch(
           `price_rules/${price_rule.id}.json`,
           { method: "DELETE" },
         );
@@ -497,10 +525,9 @@ export default function discountCodesRouter(shopify) {
 
   // ── DELETE /api/discount-codes/:id — delete by price_rule_id ───────────
   router.delete("/:id", async (req, res) => {
-    const shop = res.locals.shop;
-    const adminToken = res.locals.adminToken;
+    const adminFetch = res.locals.adminFetch;
 
-    if (!adminToken) {
+    if (!adminFetch) {
       return res
         .status(400)
         .json({ error: "Shopify Admin API token not configured." });
@@ -513,9 +540,7 @@ export default function discountCodesRouter(shopify) {
     }
 
     try {
-      const deleteRes = await shopifyAdminFetch(
-        shop,
-        adminToken,
+      const deleteRes = await adminFetch(
         `price_rules/${priceRuleId}.json`,
         { method: "DELETE" },
       );
@@ -542,10 +567,9 @@ export default function discountCodesRouter(shopify) {
   // Accepts: discount_type, discount_value, minimum_order_value, expiry_date,
   // usage_limit, is_active. Missing fields are left unchanged.
   router.patch("/:id", async (req, res) => {
-    const shop = res.locals.shop;
-    const adminToken = res.locals.adminToken;
+    const adminFetch = res.locals.adminFetch;
 
-    if (!adminToken) {
+    if (!adminFetch) {
       return res
         .status(400)
         .json({ error: "Shopify Admin API token not configured." });
@@ -567,11 +591,7 @@ export default function discountCodesRouter(shopify) {
 
     try {
       // Fetch existing rule so we don't wipe fields we aren't updating
-      const getRes = await shopifyAdminFetch(
-        shop,
-        adminToken,
-        `price_rules/${priceRuleId}.json`,
-      );
+      const getRes = await adminFetch(`price_rules/${priceRuleId}.json`);
       if (getRes.status === 404) {
         return res.status(404).json({ error: "Price rule not found." });
       }
@@ -620,9 +640,7 @@ export default function discountCodesRouter(shopify) {
           : null;
       }
 
-      const updateRes = await shopifyAdminFetch(
-        shop,
-        adminToken,
+      const updateRes = await adminFetch(
         `price_rules/${priceRuleId}.json`,
         { method: "PUT", body: JSON.stringify({ price_rule: patch }) },
       );
