@@ -203,6 +203,36 @@ export default function discountCodesRouter(shopify) {
     next();
   });
 
+  // ── POST /api/discount-codes/reset-auth — wipe stale session + cached token
+  // Use when Shopify's session storage is holding a dead token from an earlier
+  // install. After this, visit the app's install link to trigger a fresh OAuth
+  // grant with the current scope list.
+  router.post("/reset-auth", async (req, res) => {
+    const shop = res.locals.shop;
+    let deleted = 0;
+    try {
+      const sessions =
+        (await shopify.config.sessionStorage.findSessionsByShop(shop)) || [];
+      for (const s of sessions) {
+        if (s?.id) {
+          await shopify.config.sessionStorage.deleteSession(s.id);
+          deleted += 1;
+        }
+      }
+    } catch (err) {
+      return res
+        .status(500)
+        .json({ error: `session wipe failed: ${err.message}` });
+    }
+    await saveAccessToken(shop, "").catch(() => {});
+    return res.json({
+      ok: true,
+      shop,
+      sessions_deleted: deleted,
+      next: `Visit the app's install link for ${shop} to trigger a fresh OAuth grant.`,
+    });
+  });
+
   // ── GET /api/discount-codes/diag — diagnostic (authed) ─────────────────
   // Reports what's in session storage vs. the cached settings token, and
   // does a live probe of /shop.json so we can see Shopify's actual response.
