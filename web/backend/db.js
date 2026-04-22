@@ -29,6 +29,12 @@ async function initDb() {
       updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    -- Columns added post-launch for the Shopify expiring-offline-token flow.
+    -- Using ALTER TABLE IF NOT EXISTS so existing deployments upgrade cleanly.
+    ALTER TABLE settings ADD COLUMN IF NOT EXISTS shopify_refresh_token TEXT NOT NULL DEFAULT '';
+    ALTER TABLE settings ADD COLUMN IF NOT EXISTS shopify_access_token_expires_at  TIMESTAMPTZ;
+    ALTER TABLE settings ADD COLUMN IF NOT EXISTS shopify_refresh_token_expires_at TIMESTAMPTZ;
+
     CREATE TABLE IF NOT EXISTS deliveries (
       id               SERIAL PRIMARY KEY,
       shop             TEXT NOT NULL,
@@ -262,6 +268,66 @@ export async function getAccessToken(shop) {
     [shop]
   );
   return rows[0]?.shopify_admin_token || null;
+}
+
+// ── Shopify OAuth tokens (access + refresh) ──────────────────────────────────
+// Used by the token-exchange flow which issues expiring access tokens (1 h)
+// plus a long-lived refresh token (90 d). We persist both so that backend
+// calls (from Loveable, retry workers, etc.) can rotate the access token
+// without the user needing to reopen the embedded app.
+
+export async function saveShopifyTokenSet(shop, {
+  accessToken,
+  refreshToken,
+  accessTokenExpiresAt,
+  refreshTokenExpiresAt,
+}) {
+  await ensureReady();
+  await pool.query(
+    `INSERT INTO settings (shop) VALUES ($1) ON CONFLICT(shop) DO NOTHING`,
+    [shop],
+  );
+  await pool.query(
+    `UPDATE settings
+     SET shopify_admin_token                = $1,
+         shopify_refresh_token              = COALESCE(NULLIF($2, ''), shopify_refresh_token),
+         shopify_access_token_expires_at    = $3,
+         shopify_refresh_token_expires_at   = COALESCE($4, shopify_refresh_token_expires_at),
+         updated_at                         = NOW()
+     WHERE shop = $5`,
+    [
+      accessToken || "",
+      refreshToken || "",
+      accessTokenExpiresAt || null,
+      refreshTokenExpiresAt || null,
+      shop,
+    ],
+  );
+}
+
+export async function getShopifyTokenSet(shop) {
+  await ensureReady();
+  const { rows } = await pool.query(
+    `SELECT shopify_admin_token,
+            shopify_refresh_token,
+            shopify_access_token_expires_at,
+            shopify_refresh_token_expires_at
+       FROM settings
+      WHERE shop = $1`,
+    [shop],
+  );
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    accessToken: r.shopify_admin_token || "",
+    refreshToken: r.shopify_refresh_token || "",
+    accessTokenExpiresAt: r.shopify_access_token_expires_at
+      ? new Date(r.shopify_access_token_expires_at)
+      : null,
+    refreshTokenExpiresAt: r.shopify_refresh_token_expires_at
+      ? new Date(r.shopify_refresh_token_expires_at)
+      : null,
+  };
 }
 
 // ── Retention / GDPR ────────────────────────────────────────────────────────

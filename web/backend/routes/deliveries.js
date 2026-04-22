@@ -4,8 +4,11 @@ import {
   getDeliveryById,
   resetDeliveryForRetry,
   getSettings,
-  getAccessToken,
 } from "../db.js";
+import {
+  getValidAccessToken,
+  refreshShopifyAccessToken,
+} from "../shopify-auth.js";
 import webhookHandlers from "../webhooks/index.js";
 
 const SHOPIFY_API_VERSION = "2024-01";
@@ -46,24 +49,40 @@ export default function deliveriesRouter(shopify) {
 
       // Attempt to fetch order from Shopify and retry.
       // The session middleware only populates { shop } — no access token —
-      // so we load the offline token persisted at OAuth callback and call the
-      // Admin REST API directly.
+      // so we load the offline token (refreshing it via the refresh-token
+      // grant if it's near expiry) and call the Admin REST API directly.
       try {
-        const accessToken = await getAccessToken(shop);
+        let accessToken = await getValidAccessToken(shopify, shop);
         if (!accessToken) {
-          console.error(`Could not fetch order from Shopify for retry: no access token stored for ${shop}`);
+          console.error(
+            `Could not fetch order from Shopify for retry: no access token stored for ${shop}`,
+          );
         } else {
           const orderUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/orders/${delivery.order_id}.json`;
-          const orderRes = await fetch(orderUrl, {
-            headers: {
-              "X-Shopify-Access-Token": accessToken,
-              "Content-Type": "application/json",
-            },
-          });
+          const callOrder = (token) =>
+            fetch(orderUrl, {
+              headers: {
+                "X-Shopify-Access-Token": token,
+                "Content-Type": "application/json",
+              },
+            });
+
+          let orderRes = await callOrder(accessToken);
+
+          // 401 → try one refresh + retry before giving up. Covers the case
+          // where the token expired between getValidAccessToken() and the
+          // HTTP call (rare but possible under latency).
+          if (orderRes.status === 401) {
+            const refreshed = await refreshShopifyAccessToken(shopify, shop);
+            if (refreshed && refreshed !== accessToken) {
+              accessToken = refreshed;
+              orderRes = await callOrder(accessToken);
+            }
+          }
 
           if (!orderRes.ok) {
             console.error(
-              `Could not fetch order ${delivery.order_id} from Shopify for retry: HTTP ${orderRes.status}`
+              `Could not fetch order ${delivery.order_id} from Shopify for retry: HTTP ${orderRes.status}`,
             );
           } else {
             const { order } = await orderRes.json();

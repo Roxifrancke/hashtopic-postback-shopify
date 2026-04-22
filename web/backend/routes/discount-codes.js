@@ -5,6 +5,10 @@ import {
   getSettingsByApiKey,
   saveAccessToken,
 } from "../db.js";
+import {
+  getValidAccessToken,
+  refreshShopifyAccessToken,
+} from "../shopify-auth.js";
 
 /**
  * Constant-time string comparison to prevent timing attacks.
@@ -39,10 +43,9 @@ async function rawShopifyAdminFetch(shop, adminToken, path, options = {}) {
   });
 }
 
-// Look up the newest offline session in Shopify's session storage. Prefer the
-// session-storage token over settings.shopify_admin_token because uninstall/
-// reinstall leaves the old cached token in `settings` while the new token
-// lives only in the session store.
+// Look up the newest offline session in Shopify's session storage. Used as a
+// fallback when the settings row is missing (e.g. a shop that installed
+// before the refresh-token columns were added).
 async function lookupSessionToken(shopify, shop) {
   try {
     const sessions = await shopify.config.sessionStorage.findSessionsByShop(shop);
@@ -50,8 +53,6 @@ async function lookupSessionToken(shopify, shop) {
       (s) => s && !s.isOnline && s.accessToken,
     );
     if (offlineSessions.length === 0) return "";
-    // Pick the newest session — handles the case where reinstall created a
-    // new session alongside stale ones from a previous install.
     offlineSessions.sort((a, b) => {
       const aTime = a.expires ? new Date(a.expires).getTime() : 0;
       const bTime = b.expires ? new Date(b.expires).getTime() : 0;
@@ -64,10 +65,20 @@ async function lookupSessionToken(shopify, shop) {
   }
 }
 
-// Resolve the offline admin token. Always prefers session-storage (source of
-// truth post-install) and only falls back to the cached settings token when
-// storage is empty. Caches successful lookups back into settings.
+// Resolve an offline admin token, refreshing if near expiry. Prefers the
+// expiry-aware helper (reads refresh token + both expiry timestamps from
+// settings) and falls back to a raw session-storage lookup so shops that
+// predate the refresh-token columns still work.
 async function resolveAdminToken(shopify, shop, settings) {
+  const tokenFromHelper = await getValidAccessToken(shopify, shop);
+  if (tokenFromHelper) {
+    if (tokenFromHelper !== settings?.shopify_admin_token) {
+      await saveAccessToken(shop, tokenFromHelper).catch(() => {});
+    }
+    return tokenFromHelper;
+  }
+
+  // Fallback: legacy shops that installed before we tracked refresh tokens.
   const fromStorage = await lookupSessionToken(shopify, shop);
   if (fromStorage) {
     if (fromStorage !== settings?.shopify_admin_token) {
@@ -78,25 +89,34 @@ async function resolveAdminToken(shopify, shop, settings) {
   return settings?.shopify_admin_token || "";
 }
 
-// Admin fetch with automatic 401 recovery: on 401, clear the cached token,
-// re-resolve from session storage, and retry once. Keeps the route handlers
-// simple — callers still see either a success response or a real failure.
+// Admin fetch with automatic 401 recovery. On 401 we try the refresh-token
+// grant first (cheap, doesn't need the user), then fall back to session
+// storage lookup (helps if the session was re-exchanged by the middleware
+// while we were mid-flight), and finally clear the stale cache if nothing
+// works so the next request surfaces a clean auth error instead of looping.
 function makeAdminFetcher(shopify, shop, initialToken) {
   let token = initialToken;
   return async function adminFetch(path, options = {}) {
     let res = await rawShopifyAdminFetch(shop, token, path, options);
     if (res.status !== 401) return res;
 
-    const refreshed = await lookupSessionToken(shopify, shop);
-    if (!refreshed || refreshed === token) {
-      // Clear the stale cache so the next request doesn't keep retrying this
-      // same dead token via the settings fallback.
-      await saveAccessToken(shop, "").catch(() => {});
+    const refreshed = await refreshShopifyAccessToken(shopify, shop);
+    if (refreshed && refreshed !== token) {
+      token = refreshed;
+      await saveAccessToken(shop, refreshed).catch(() => {});
+      res = await rawShopifyAdminFetch(shop, token, path, options);
+      if (res.status !== 401) return res;
+    }
+
+    const fromStorage = await lookupSessionToken(shopify, shop);
+    if (fromStorage && fromStorage !== token) {
+      token = fromStorage;
+      await saveAccessToken(shop, fromStorage).catch(() => {});
+      res = await rawShopifyAdminFetch(shop, token, path, options);
       return res;
     }
-    token = refreshed;
-    await saveAccessToken(shop, refreshed).catch(() => {});
-    res = await rawShopifyAdminFetch(shop, token, path, options);
+
+    await saveAccessToken(shop, "").catch(() => {});
     return res;
   };
 }

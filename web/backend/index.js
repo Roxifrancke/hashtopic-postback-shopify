@@ -21,10 +21,11 @@ import { readFileSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import { shopifyApp } from "@shopify/shopify-app-express";
 import { PostgreSQLSessionStorage } from "@shopify/shopify-app-session-storage-postgresql";
-import { ApiVersion, Session } from "@shopify/shopify-api";
+import { ApiVersion } from "@shopify/shopify-api";
 import { restResources } from "@shopify/shopify-api/rest/admin/2025-04";
 
 import { getSettings } from "./db.js";
+import { persistShopifyTokens } from "./shopify-auth.js";
 import settingsRouter from "./routes/settings.js";
 import deliveriesRouter from "./routes/deliveries.js";
 import webhookHandlers from "./webhooks/index.js";
@@ -472,30 +473,14 @@ async function tokenExchangeMiddleware(req, res, next) {
       return next();
     }
 
-    // Build the Session manually from the raw response. We intentionally do
-    // NOT call shopify.api.auth.tokenExchange() — that would re-POST without
-    // `expiring: "1"` and overwrite our expiring token with a deprecated one.
-    const expiresIn =
-      typeof tokJson.expires_in === "number" ? tokJson.expires_in : undefined;
-    const session = new Session({
-      id: shopify.api.session.getOfflineId(shop),
-      shop,
-      state: "",
-      isOnline: false,
-      accessToken: tokJson.access_token,
-      scope: tokJson.scope,
-      ...(expiresIn !== undefined && {
-        expires: new Date(Date.now() + expiresIn * 1000),
-      }),
-    });
-
-    await shopify.config.sessionStorage.storeSession(session);
-
-    const { saveAccessToken } = await import("./db.js");
-    await saveAccessToken(shop, session.accessToken).catch(() => {});
+    // Persist the access token + refresh token + both expiry timestamps.
+    // Uses the shared helper so the shape matches what refreshShopifyAccessToken
+    // writes on rotation — keeps session storage and the settings row in sync.
+    const { session, accessTokenExpiresAt, refreshTokenExpiresAt } =
+      await persistShopifyTokens(shopify, shop, tokJson);
 
     console.log(
-      `[MS] Token exchange stored offline session for ${shop} (scope=${session.scope}, expires=${session.expires || "null"}, expires_in=${expiresIn ?? "null"})`,
+      `[MS] Token exchange stored offline session for ${shop} (scope=${session.scope}, access_expires=${accessTokenExpiresAt?.toISOString() || "null"}, refresh_expires=${refreshTokenExpiresAt?.toISOString() || "null"})`,
     );
   } catch (err) {
     console.error(
