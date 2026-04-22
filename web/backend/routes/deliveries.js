@@ -11,7 +11,7 @@ import {
 } from "../shopify-auth.js";
 import webhookHandlers from "../webhooks/index.js";
 
-const SHOPIFY_API_VERSION = "2024-01";
+const SHOPIFY_API_VERSION = "2025-04";
 
 export default function deliveriesRouter(shopify) {
   const router = Router();
