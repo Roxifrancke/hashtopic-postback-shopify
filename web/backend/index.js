@@ -24,7 +24,7 @@ import { PostgreSQLSessionStorage } from "@shopify/shopify-app-session-storage-p
 import { ApiVersion } from "@shopify/shopify-api";
 import { restResources } from "@shopify/shopify-api/rest/admin/2025-04";
 
-import { getSettings } from "./db.js";
+import { getSettings, getShopifyTokenSet } from "./db.js";
 import { persistShopifyTokens } from "./shopify-auth.js";
 import settingsRouter from "./routes/settings.js";
 import deliveriesRouter from "./routes/deliveries.js";
@@ -415,17 +415,39 @@ async function tokenExchangeMiddleware(req, res, next) {
   if (!shop) return next();
 
   try {
-    // Skip if we already have a session whose token has a future expiry.
-    // We intentionally DO NOT accept non-expiring sessions as valid — Shopify
-    // now refuses them on the Admin API, so we should always re-exchange
-    // until we get one with an expiry.
+    // Decide whether to skip re-exchange. We skip ONLY when all three hold:
+    //   1. the session storage already has an access token,
+    //   2. that token's expiry is well in the future (>5 min buffer), and
+    //   3. the settings row has a non-empty refresh_token.
+    //
+    // (3) catches the migration case: shops that exchanged under the
+    // pre-refresh-token code have a valid session but no refresh token
+    // stored, so the moment the access token expires, backend calls have
+    // no way to recover. Re-exchanging on the next app open populates the
+    // new columns so the refresh flow can take over from there.
     const sessionId = shopify.api.session.getOfflineId(shop);
     const existing =
       await shopify.config.sessionStorage.loadSession(sessionId);
-    const expiresInFuture =
-      existing?.expires && new Date(existing.expires) > new Date();
-    if (existing?.accessToken && expiresInFuture) {
+    const EXPIRY_BUFFER_MS = 5 * 60 * 1000;
+    const expiresComfortablyInFuture =
+      existing?.expires &&
+      new Date(existing.expires).getTime() - Date.now() > EXPIRY_BUFFER_MS;
+
+    const storedTokens = await getShopifyTokenSet(shop);
+    const hasRefreshToken = Boolean(storedTokens?.refreshToken);
+
+    if (
+      existing?.accessToken &&
+      expiresComfortablyInFuture &&
+      hasRefreshToken
+    ) {
       return next();
+    }
+
+    if (existing?.accessToken && expiresComfortablyInFuture && !hasRefreshToken) {
+      console.log(
+        `[MS] token-exchange: session valid but refresh_token missing for ${shop} — re-exchanging to backfill refresh token`,
+      );
     }
 
     // Call the token-exchange endpoint ourselves so we can (a) include the
