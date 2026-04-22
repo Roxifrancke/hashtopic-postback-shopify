@@ -21,7 +21,7 @@ import { readFileSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import { shopifyApp } from "@shopify/shopify-app-express";
 import { PostgreSQLSessionStorage } from "@shopify/shopify-app-session-storage-postgresql";
-import { ApiVersion, RequestedTokenType } from "@shopify/shopify-api";
+import { ApiVersion, Session } from "@shopify/shopify-api";
 import { restResources } from "@shopify/shopify-api/rest/admin/2025-04";
 
 import { getSettings } from "./db.js";
@@ -427,9 +427,11 @@ async function tokenExchangeMiddleware(req, res, next) {
       return next();
     }
 
-    // Call the token-exchange endpoint ourselves so we can log the raw
-    // response. The library wrapper hides the body which makes it hard to
-    // tell whether Shopify is returning `expires_in` or not.
+    // Call the token-exchange endpoint ourselves so we can (a) include the
+    // `expiring: "1"` parameter which the SDK v11.14.1 does NOT send, and
+    // (b) log the raw response. Without `expiring=1` Shopify returns the
+    // deprecated non-expiring offline token — which the Admin API now
+    // rejects ("Non-expiring access tokens are no longer accepted").
     const body = {
       client_id: process.env.SHOPIFY_API_KEY,
       client_secret: process.env.SHOPIFY_API_SECRET,
@@ -438,6 +440,7 @@ async function tokenExchangeMiddleware(req, res, next) {
       subject_token_type: "urn:ietf:params:oauth:token-type:id_token",
       requested_token_type:
         "urn:shopify:params:oauth:token-type:offline-access-token",
+      expiring: "1",
     };
     const tokRes = await fetch(
       `https://${shop}/admin/oauth/access_token`,
@@ -456,6 +459,9 @@ async function tokenExchangeMiddleware(req, res, next) {
       access_token: tokJson.access_token
         ? `${String(tokJson.access_token).slice(0, 8)}…`
         : undefined,
+      refresh_token: tokJson.refresh_token
+        ? `${String(tokJson.refresh_token).slice(0, 8)}…`
+        : undefined,
     };
     console.log(
       `[MS] token-exchange raw response (status=${tokRes.status}):`,
@@ -466,10 +472,21 @@ async function tokenExchangeMiddleware(req, res, next) {
       return next();
     }
 
-    const { session } = await shopify.api.auth.tokenExchange({
+    // Build the Session manually from the raw response. We intentionally do
+    // NOT call shopify.api.auth.tokenExchange() — that would re-POST without
+    // `expiring: "1"` and overwrite our expiring token with a deprecated one.
+    const expiresIn =
+      typeof tokJson.expires_in === "number" ? tokJson.expires_in : undefined;
+    const session = new Session({
+      id: shopify.api.session.getOfflineId(shop),
       shop,
-      sessionToken: idToken,
-      requestedTokenType: RequestedTokenType.OfflineAccessToken,
+      state: "",
+      isOnline: false,
+      accessToken: tokJson.access_token,
+      scope: tokJson.scope,
+      ...(expiresIn !== undefined && {
+        expires: new Date(Date.now() + expiresIn * 1000),
+      }),
     });
 
     await shopify.config.sessionStorage.storeSession(session);
@@ -478,7 +495,7 @@ async function tokenExchangeMiddleware(req, res, next) {
     await saveAccessToken(shop, session.accessToken).catch(() => {});
 
     console.log(
-      `[MS] Token exchange stored offline session for ${shop} (scope=${session.scope}, expires=${session.expires || "null"})`,
+      `[MS] Token exchange stored offline session for ${shop} (scope=${session.scope}, expires=${session.expires || "null"}, expires_in=${expiresIn ?? "null"})`,
     );
   } catch (err) {
     console.error(
