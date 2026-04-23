@@ -13,7 +13,7 @@ Do not open a public GitHub issue for security reports.
 ## Supported versions
 
 Only the version deployed on Render at
-`https://hashtopic-postback-shopify.onrender.com` is actively supported.
+`https://mystorefront-postback.onrender.com` is actively supported.
 
 ## Security controls
 
