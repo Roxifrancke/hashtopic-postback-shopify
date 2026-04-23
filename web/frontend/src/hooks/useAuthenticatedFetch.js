@@ -1,64 +1,46 @@
 import { useCallback } from "react";
 
-// On every page load, check URL for fresh token/shop and persist to sessionStorage.
-// This survives SPA navigation and even full page reloads within the same tab.
-(function persistParams() {
-  const params = new URLSearchParams(window.location.search);
-  const token = params.get("id_token");
-  const shop = params.get("shop");
-  if (token) sessionStorage.setItem("ht_id_token", token);
-  if (shop) sessionStorage.setItem("ht_shop", shop);
-})();
-
-function getToken() {
-  // 1. Check current URL (freshest)
-  const params = new URLSearchParams(window.location.search);
-  const fromUrl = params.get("id_token");
-  if (fromUrl) {
-    sessionStorage.setItem("ht_id_token", fromUrl);
-    return fromUrl;
-  }
-  // 2. Fall back to sessionStorage
-  return sessionStorage.getItem("ht_id_token") || "";
-}
-
-function getShop() {
-  const params = new URLSearchParams(window.location.search);
-  const fromUrl = params.get("shop");
-  if (fromUrl) {
-    sessionStorage.setItem("ht_shop", fromUrl);
-    return fromUrl;
-  }
-  // Try sessionStorage first
-  const shop = sessionStorage.getItem("ht_shop");
-  if (shop) return shop;
-
-  // Extract from stored token as last resort
-  const token = getToken();
-  if (token) {
+// App Bridge v4 exposes window.shopify.idToken(), which returns a fresh
+// Shopify session JWT (expiry ~1 minute). Shopify's embedded-app checks
+// require that authenticated fetches use a session token obtained this
+// way — NOT a stale id_token cached from the initial URL.
+//
+// We call it on every request so the backend's JWT middleware always sees
+// a valid, unexpired token. If App Bridge is not yet initialised (edge
+// case on very first paint), we fall back to the id_token query param so
+// the first request still works; subsequent requests get fresh tokens.
+async function getFreshSessionToken() {
+  if (
+    typeof window !== "undefined" &&
+    window.shopify &&
+    typeof window.shopify.idToken === "function"
+  ) {
     try {
-      const payload = JSON.parse(atob(token.split(".")[1]));
-      const dest = (payload.dest || "").replace("https://", "");
-      if (dest) {
-        sessionStorage.setItem("ht_shop", dest);
-        return dest;
-      }
-    } catch (e) {}
+      const token = await window.shopify.idToken();
+      if (token) return token;
+    } catch (err) {
+      console.warn("[auth] window.shopify.idToken() failed:", err);
+    }
   }
-  return "";
+  // Fallback: initial URL id_token — valid only for the first ~60 seconds
+  // after embed load. Used only until App Bridge is ready.
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("id_token") || "";
+  } catch {
+    return "";
+  }
 }
 
 export function useAuthenticatedFetch() {
-  return useCallback((uri, options = {}) => {
-    const token = getToken();
-    const shop = getShop();
+  return useCallback(async (uri, options = {}) => {
+    const token = await getFreshSessionToken();
 
     return fetch(uri, {
       ...options,
       headers: {
         "Content-Type": "application/json",
-        ...(token && { "Authorization": `Bearer ${token}` }),
-        ...(shop && { "X-Shopify-Shop": shop }),
+        ...(token && { Authorization: `Bearer ${token}` }),
         ...options.headers,
       },
     });

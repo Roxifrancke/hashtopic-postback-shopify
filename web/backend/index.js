@@ -514,9 +514,18 @@ async function tokenExchangeMiddleware(req, res, next) {
 }
 
 app.use("/*", tokenExchangeMiddleware, async (_req, res) => {
-  return res.set("Content-Type", "text/html").send(
-    readFileSync(join(STATIC_PATH, "index.html"))
+  // Inject SHOPIFY_API_KEY into the App Bridge script's data-api-key attribute.
+  // App Bridge v4 requires data-api-key to initialise window.shopify, which
+  // provides window.shopify.idToken() — the fresh session-token source our
+  // frontend uses for every authenticated fetch.
+  const html = readFileSync(join(STATIC_PATH, "index.html"), "utf-8").replace(
+    /%SHOPIFY_API_KEY%/g,
+    process.env.SHOPIFY_API_KEY || ""
   );
+  return res
+    .set("Content-Type", "text/html")
+    .set("Cache-Control", "no-store")
+    .send(html);
 });
 
 app.listen(PORT, () => {
