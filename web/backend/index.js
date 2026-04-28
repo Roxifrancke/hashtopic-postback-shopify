@@ -293,6 +293,8 @@ app.post("/api/webhooks", express.text({ type: "*/*" }), async (req, res) => {
       await webhookHandlers.ordersPaid(topic, shop, req.body);
     } else if (topic === "orders/updated") {
       await webhookHandlers.ordersUpdated(topic, shop, req.body);
+    } else if (topic === "refunds/create") {
+      await webhookHandlers.refundsCreate(topic, shop, req.body);
     }
     res.status(200).send("OK");
   } catch (err) {

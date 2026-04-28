@@ -1,5 +1,3 @@
-import { getSettings } from "./db.js";
-
 const MAX_ATTEMPTS = 5;
 // Retry delays in seconds: immediate(0), +5m, +30m, +2h, +24h
 const RETRY_DELAYS = [0, 300, 1800, 7200, 86400];
@@ -12,7 +10,17 @@ export function buildPayload(shop, order, settings) {
     (a) => a.name === "click_id"
   )?.value ?? null;
 
-  const itemsCount = (order.line_items || []).reduce(
+  const lineItems = (order.line_items || []).map((item) => ({
+    product_id: item.product_id != null ? String(item.product_id) : null,
+    variant_id: item.variant_id != null ? String(item.variant_id) : null,
+    sku: item.sku || null,
+    title: item.title || null,
+    quantity: item.quantity || 0,
+    price: parseFloat(item.price || 0),
+    total_discount: parseFloat(item.total_discount || 0),
+  }));
+
+  const itemsCount = lineItems.reduce(
     (sum, item) => sum + (item.quantity || 0),
     0
   );
@@ -32,6 +40,7 @@ return {
     tax_total: parseFloat(order.total_tax || 0),
     discount_total: parseFloat(order.total_discounts || 0),
     items_count: itemsCount,
+    line_items: lineItems,
     customer: {
       email: order.email || order.customer?.email || null,
       phone: order.phone || order.customer?.phone || null,
@@ -63,9 +72,101 @@ export function buildTestPayload(shop, settings) {
       tax_total: 8.5,
       discount_total: 0.0,
       items_count: 1,
+      line_items: [
+        {
+          product_id: "test_product_1",
+          variant_id: "test_variant_1",
+          sku: "TEST-SKU-1",
+          title: "Test Product",
+          quantity: 1,
+          price: 86.49,
+          total_discount: 0,
+        },
+      ],
       customer: {
         email: null,
         phone: null,
+      },
+      store: {
+        platform: "shopify",
+        site_url: `https://${shop}`,
+      },
+    },
+  };
+}
+
+/**
+ * Build a refund (clawback) payload from a Shopify refund object.
+ *
+ * Shape mirrors a purchase payload but with:
+ *   - event = "refund"
+ *   - order_total as a NEGATIVE number (the refunded amount, signed)
+ *   - refund_id and refund_reference fields so MyStorefront can dedupe
+ *   - line_items containing only the refunded items
+ *
+ * MyStorefront should treat this as a clawback against the original
+ * commission. Partial refunds reduce commission proportionally; full
+ * refunds zero it out.
+ *
+ * The `order` argument is the parent order fetched via the Admin API
+ * (so we can pull click_id from note_attributes — refund webhooks don't
+ * include it directly).
+ */
+export function buildRefundPayload(shop, order, refund, settings) {
+  const clickId = order?.note_attributes?.find(
+    (a) => a.name === "click_id"
+  )?.value ?? null;
+
+  const refundLineItems = (refund.refund_line_items || []).map((rli) => {
+    const li = rli.line_item || {};
+    return {
+      product_id: li.product_id != null ? String(li.product_id) : null,
+      variant_id: li.variant_id != null ? String(li.variant_id) : null,
+      sku: li.sku || null,
+      title: li.title || null,
+      quantity: rli.quantity || 0,
+      price: parseFloat(li.price || 0),
+      subtotal: parseFloat(rli.subtotal || 0),
+      total_tax: parseFloat(rli.total_tax || 0),
+    };
+  });
+
+  // Sum refund amount across transactions (in case of split refunds).
+  const refundTotal = (refund.transactions || [])
+    .filter((t) => t.kind === "refund" && t.status === "success")
+    .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+
+  // Fall back to summing refund_line_items if no transactions present.
+  const fallbackTotal = refundLineItems.reduce(
+    (sum, li) => sum + (li.subtotal || 0) + (li.total_tax || 0),
+    0
+  );
+
+  const signedTotal = -1 * Math.abs(refundTotal || fallbackTotal);
+
+  const itemsCount = refundLineItems.reduce(
+    (sum, li) => sum + (li.quantity || 0),
+    0
+  );
+
+  return {
+    click_id: clickId || null,
+    order_id: String(order?.id ?? refund.order_id),
+    refund_id: String(refund.id),
+    order_total: signedTotal,
+    currency: order?.currency || "USD",
+    test: Boolean(settings?.test_mode),
+    metadata: {
+      event: "refund",
+      event_time: new Date().toISOString(),
+      order_number: String(order?.name || order?.order_number || order?.id || refund.order_id),
+      refund_reference: String(refund.id),
+      refund_note: refund.note || null,
+      items_count: itemsCount,
+      line_items: refundLineItems,
+      customer: {
+        email: order?.email || order?.customer?.email || null,
+        phone: order?.phone || order?.customer?.phone || null,
       },
       store: {
         platform: "shopify",
@@ -99,11 +200,14 @@ export async function sendPayload(payload, settings) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
 
-    console.log("=== DEBUG POSTBACK ===");
-    console.log("Webhook URL:", webhook_url);
-    console.log("Webhook Secret:", webhook_secret);
-    console.log("Payload click_id:", payload.click_id);
-    console.log("======================");
+    if (debug) {
+      console.log("[HT Debug] Sending postback:", JSON.stringify({
+        webhook_url,
+        webhook_secret: maskSecret(webhook_secret),
+        click_id: payload.click_id,
+        order_id: payload.order_id,
+      }));
+    }
 
     const res = await fetch(webhook_url, {
       method: "POST",
@@ -153,4 +257,10 @@ function maskEmail(email) {
   const [local, domain] = email.split("@");
   if (!domain) return "***";
   return local.slice(0, 1) + "***@" + domain;
+}
+
+function maskSecret(secret) {
+  if (!secret) return null;
+  if (secret.length <= 8) return "***";
+  return secret.slice(0, 4) + "***" + secret.slice(-2);
 }

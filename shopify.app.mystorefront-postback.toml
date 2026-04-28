@@ -9,7 +9,7 @@ embedded = true
 api_version = "2025-04"
 
   [[webhooks.subscriptions]]
-  topics = ["orders/paid", "orders/updated"]
+  topics = ["orders/paid", "orders/updated", "refunds/create"]
   uri = "/api/webhooks"
 
   [webhooks.privacy_compliance]

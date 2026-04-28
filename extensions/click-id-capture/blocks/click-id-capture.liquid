@@ -1,45 +1,72 @@
+{%- comment -%}
+  MyStorefront Postback — Click ID Capture (theme app embed)
+
+  This block delegates capture behaviour to the backend-served capture.js so
+  there is ONE source of truth for cookie name, cookie days, and URL
+  parameter names. Merchant settings configured in the embedded app
+  (param_names / cookie_name / cookie_days) are honoured here because this
+  block just loads the same script the pixel-script route serves.
+
+  A minimal inline fallback runs only if the external script fails to load
+  (e.g. the app backend is unreachable). The fallback uses safe defaults
+  (30 days, click_id, click_id) and matches the cookie flags of the main
+  script — including Secure on HTTPS.
+{%- endcomment -%}
+
 <script>
 (function () {
-  try {
-    var params = new URLSearchParams(window.location.search);
-    var clickId = params.get('click_id');
+  var APP_URL = {{ block.settings.app_url | default: 'https://mystorefront-postback.onrender.com' | json }};
+  var SHOP = {{ shop.permanent_domain | json }};
 
-    function setCookie(value) {
-      var expires = new Date();
-      expires.setTime(expires.getTime() + 30 * 24 * 60 * 60 * 1000);
-      document.cookie =
-        'click_id=' +
-        encodeURIComponent(value) +
-        '; expires=' + expires.toUTCString() +
-        '; path=/' +
-        '; SameSite=Lax';
-    }
+  // 1. Try the merchant-configured capture script (single source of truth).
+  var s = document.createElement('script');
+  s.async = true;
+  s.src = APP_URL + '/pixel/' + encodeURIComponent(SHOP) + '/capture.js';
+  s.onerror = runFallback;
+  (document.head || document.documentElement).appendChild(s);
 
-    function getCookie() {
-      var match = document.cookie.match(/(^|; )click_id=([^;]*)/);
-      return match ? decodeURIComponent(match[2]) : null;
-    }
+  // 2. Fallback — only runs if the external script fails to load.
+  //    Uses defaults that match the schema defaults in pixel-script.js.
+  function runFallback() {
+    try {
+      var params = new URLSearchParams(window.location.search);
+      var clickId = params.get('click_id');
 
-    function syncToCart(value) {
-      try {
-        fetch('/cart/update.js', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ attributes: { click_id: value } })
-        });
-      } catch (e) {}
-    }
-
-    if (clickId) {
-      setCookie(clickId);
-      syncToCart(clickId);
-    } else {
-      var existing = getCookie();
-      if (existing) {
-        syncToCart(existing);
+      function setCookie(value) {
+        var expires = new Date(Date.now() + 30 * 864e5).toUTCString();
+        var secure = location.protocol === 'https:' ? '; Secure' : '';
+        document.cookie =
+          'click_id=' + encodeURIComponent(value) +
+          '; expires=' + expires +
+          '; path=/' +
+          '; SameSite=Lax' +
+          secure;
       }
-    }
-  } catch (e) {}
+
+      function getCookie() {
+        var match = document.cookie.match(/(^|; )click_id=([^;]*)/);
+        return match ? decodeURIComponent(match[2]) : null;
+      }
+
+      function syncToCart(value) {
+        try {
+          fetch('/cart/update.js', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ attributes: { click_id: value } })
+          });
+        } catch (e) {}
+      }
+
+      if (clickId) {
+        setCookie(clickId);
+        syncToCart(clickId);
+      } else {
+        var existing = getCookie();
+        if (existing) syncToCart(existing);
+      }
+    } catch (e) {}
+  }
 })();
 </script>
 
@@ -47,6 +74,14 @@
 {
   "name": "Click ID Capture",
   "target": "body",
-  "settings": []
+  "settings": [
+    {
+      "type": "text",
+      "id": "app_url",
+      "label": "App backend URL",
+      "default": "https://mystorefront-postback.onrender.com",
+      "info": "Leave as the default unless your MyStorefront Postback backend is hosted on a custom domain. The capture script is loaded from this host."
+    }
+  ]
 }
 {% endschema %}

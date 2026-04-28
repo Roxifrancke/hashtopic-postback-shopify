@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "cross-env NODE_ENV=development nodemon backend/index.js --watch backend",
     "build": "cd frontend && npm install && npm run build",
-    "start": "cross-env NODE_ENV=production node backend/index.js"
+    "start": "cross-env NODE_ENV=production node backend/index.js",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "@shopify/shopify-api": "^11.0.0",

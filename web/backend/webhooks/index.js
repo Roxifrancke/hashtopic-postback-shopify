@@ -4,9 +4,11 @@ import {
   markDeliverySent,
   markDeliveryFailed,
   getDeliveriesForShop,
+  getAccessToken,
 } from "../db.js";
 import {
   buildPayload,
+  buildRefundPayload,
   sendPayload,
   nextRetryAt,
   MAX_ATTEMPTS,
@@ -95,4 +97,95 @@ const ordersUpdated = async (topic, shop, body, webhookId) => {
   }
 };
 
-export default { ordersPaid, ordersUpdated, processOrder };
+/**
+ * Fetch the parent order via the Shopify Admin API so we can pull
+ * note_attributes (which the refund webhook payload does not include).
+ * Returns null on any failure — the caller falls back to a payload
+ * built without click_id / customer info.
+ */
+async function fetchOrder(shop, orderId) {
+  try {
+    const accessToken = await getAccessToken(shop);
+    if (!accessToken) {
+      console.warn(`[MS] No admin token for ${shop} — cannot fetch order ${orderId} for refund`);
+      return null;
+    }
+    const apiVersion = "2025-04";
+    const url = `https://${shop}/admin/api/${apiVersion}/orders/${orderId}.json`;
+    const res = await fetch(url, {
+      headers: {
+        "X-Shopify-Access-Token": accessToken,
+        "Content-Type": "application/json",
+      },
+    });
+    if (!res.ok) {
+      console.warn(`[MS] Order fetch failed for ${shop}/${orderId}: HTTP ${res.status}`);
+      return null;
+    }
+    const json = await res.json();
+    return json.order || null;
+  } catch (err) {
+    console.error(`[MS] Order fetch error for ${shop}/${orderId}:`, err.message || err);
+    return null;
+  }
+}
+
+async function processRefund(shop, refund) {
+  const settings = await getSettings(shop);
+  if (!settings?.webhook_url) {
+    console.log(`[MS] No webhook URL configured for ${shop}, skipping refund.`);
+    return;
+  }
+
+  // Fetch parent order to pull click_id from note_attributes.
+  const order = await fetchOrder(shop, refund.order_id);
+
+  // No click_id → not an affiliate order, no commission to claw back.
+  const clickId = order?.note_attributes?.find(
+    (a) => a.name === "click_id"
+  )?.value;
+  if (!clickId) {
+    if (settings.debug) {
+      console.log(`[MS] Refund ${refund.id} on ${shop} has no click_id on parent order — skipping.`);
+    }
+    return;
+  }
+
+  // Use a refund-specific delivery key so it doesn't collide with the
+  // original purchase delivery for the same order_id.
+  const deliveryKey = `refund_${refund.id}`;
+  const delivery = await upsertDelivery(shop, deliveryKey, order?.name || String(refund.order_id));
+
+  if (delivery.status === "sent") {
+    console.log(`[MS] Refund ${refund.id} already sent for ${shop}, skipping.`);
+    return;
+  }
+  if (delivery.attempts >= MAX_RETRY) {
+    console.log(`[MS] Refund ${refund.id} max attempts reached for ${shop}.`);
+    return;
+  }
+
+  const payload = buildRefundPayload(shop, order, refund, settings);
+  const result = await sendPayload(payload, settings);
+
+  if (result.success) {
+    await markDeliverySent(delivery.id, result.httpCode);
+    console.log(`[MS] Refund postback sent for refund ${refund.id} on ${shop} (HTTP ${result.httpCode})`);
+  } else {
+    const attempt = delivery.attempts + 1;
+    const retryAt = attempt < MAX_RETRY ? nextRetryAt(attempt) : null;
+    await markDeliveryFailed(delivery.id, result.httpCode, result.error, retryAt);
+    console.error(`[MS] Refund postback failed for refund ${refund.id} on ${shop}: ${result.error}`);
+  }
+}
+
+const refundsCreate = async (topic, shop, body, webhookId) => {
+  try {
+    const refund = JSON.parse(body);
+    await processRefund(shop, refund);
+  } catch (err) {
+    console.error("[MS] Error in refunds/create handler:", err);
+  }
+};
+
+export default { ordersPaid, ordersUpdated, refundsCreate, processOrder, processRefund };
