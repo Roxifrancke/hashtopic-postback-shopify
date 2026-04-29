@@ -9,8 +9,12 @@ export const pixelScriptRouter = Router();
  * and stores it in a first-party cookie.
  * This is loaded by the Shopify theme via Script Tag or Web Pixel.
  */
-pixelScriptRouter.get("/:shop/capture.js", async (req, res) => {
-  const shop = req.params.shop;
+pixelScriptRouter.get(["/capture.js", "/:shop/capture.js"], async (req, res) => {
+  const shop =
+    req.params.shop ||
+    req.query.shop ||
+    req.headers["x-shopify-shop-domain"];
+
   if (!shop || !shop.includes(".myshopify.com")) {
     return res.status(400).send("// Invalid shop");
   }
@@ -25,10 +29,16 @@ pixelScriptRouter.get("/:shop/capture.js", async (req, res) => {
 
   const script = generateCaptureScript(paramNames, cookieName, cookieDays);
 
-  res.set({
-    "Content-Type": "application/javascript; charset=utf-8",
-    "Cache-Control": "public, max-age=300",
-  });
+res.set({
+  "Content-Type": "application/javascript; charset=utf-8",
+  "Cache-Control": "public, max-age=300",
+
+  // 🔥 CRITICAL FIX
+  "Access-Control-Allow-Origin": "*",
+  "Cross-Origin-Resource-Policy": "cross-origin",
+  "Cross-Origin-Embedder-Policy": "unsafe-none",
+  "Cross-Origin-Opener-Policy": "unsafe-none"
+});
   res.send(script);
 });
 

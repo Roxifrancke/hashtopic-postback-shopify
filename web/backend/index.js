@@ -99,6 +99,14 @@ app.use(
     xFrameOptions: false,
   })
 );
+// 🔥 CRITICAL: allow Shopify storefront to load and execute scripts
+app.use((req, res, next) => {
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
+  res.setHeader("Cross-Origin-Opener-Policy", "unsafe-none");
+
+  next();
+});
 
 app.use("/api/webhooks/shopify", shopifyWebhooks);
 
