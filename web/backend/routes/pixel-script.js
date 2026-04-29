@@ -62,6 +62,8 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
   var COOKIE_NAME = ${JSON.stringify(cookieName)};
   var COOKIE_DAYS = ${cookieDays};
   var STORAGE_KEY = 'mystorefront_click_id';
+  var STORAGE_TS_KEY = 'mystorefront_click_id_ts';
+  var EXPIRY_DAYS = 7;
   var FORM_INPUT_NAME = 'properties[click_id]';
 
   // ── Read sources ─────────────────────────────────────────────────────────
@@ -84,11 +86,14 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
     } catch(e) { return null; }
   }
 
-  function setLocalStorage(value) {
-    try {
-      if (window.localStorage) window.localStorage.setItem(STORAGE_KEY, value);
-    } catch(e) {}
-  }
+function setLocalStorage(value) {
+  try {
+    if (window.localStorage) {
+      window.localStorage.setItem(STORAGE_KEY, value);
+      window.localStorage.setItem(STORAGE_TS_KEY, Date.now().toString());
+    }
+  } catch(e) {}
+}
 
   function getCookie(name) {
     try {
@@ -114,9 +119,25 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
    * URL is checked in run() and persisted before this is called, so this
    * just returns the most-recently-stored value across localStorage / cookie.
    */
-  function getStoredClickId() {
-    return getLocalStorage() || getCookie(COOKIE_NAME);
-  }
+function getStoredClickId() {
+  try {
+    var ts = window.localStorage && window.localStorage.getItem(STORAGE_TS_KEY);
+    if (ts) {
+      var age = Date.now() - parseInt(ts, 10);
+      var maxAge = EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+
+      if (age > maxAge) {
+        // expired → clear
+        window.localStorage.removeItem(STORAGE_KEY);
+        window.localStorage.removeItem(STORAGE_TS_KEY);
+        setCookie(COOKIE_NAME, '', -1);
+        return null;
+      }
+    }
+  } catch(e) {}
+
+  return getLocalStorage() || getCookie(COOKIE_NAME);
+}
 
   // ── Cart attribute write (backward-compatible fallback) ──────────────────
 
