@@ -7,10 +7,12 @@
   (param_names / cookie_name / cookie_days) are honoured here because this
   block just loads the same script the pixel-script route serves.
 
-  A minimal inline fallback runs only if the external script fails to load
-  (e.g. the app backend is unreachable). The fallback uses safe defaults
-  (30 days, click_id, click_id) and matches the cookie flags of the main
-  script — including Secure on HTTPS.
+  A self-contained inline fallback runs only if the external script fails to
+  load (e.g. the app backend is unreachable). The fallback mirrors the main
+  script's three-layer attribution:
+    1. Hidden input on add-to-cart forms (line-item property _click_id)
+    2. Cart attribute via /cart/update.js (order note_attribute click_id)
+    3. Cookie + localStorage persistence (URL > cookie > localStorage)
 {%- endcomment -%}
 
 <script>
@@ -29,14 +31,21 @@
   //    Uses defaults that match the schema defaults in pixel-script.js.
   function runFallback() {
     try {
-      var params = new URLSearchParams(window.location.search);
-      var clickId = params.get('click_id');
+      var COOKIE_NAME = 'click_id';
+      var COOKIE_DAYS = 30;
+      var LINE_ITEM_PROP = '_click_id';
+
+      function getUrlParam() {
+        try {
+          return new URLSearchParams(window.location.search).get('click_id');
+        } catch(e) { return null; }
+      }
 
       function setCookie(value) {
-        var expires = new Date(Date.now() + 30 * 864e5).toUTCString();
+        var expires = new Date(Date.now() + COOKIE_DAYS * 864e5).toUTCString();
         var secure = location.protocol === 'https:' ? '; Secure' : '';
         document.cookie =
-          'click_id=' + encodeURIComponent(value) +
+          COOKIE_NAME + '=' + encodeURIComponent(value) +
           '; expires=' + expires +
           '; path=/' +
           '; SameSite=Lax' +
@@ -48,23 +57,73 @@
         return match ? decodeURIComponent(match[2]) : null;
       }
 
-      function syncToCart(value) {
+      function setLocal(value) {
+        try { window.localStorage.setItem(COOKIE_NAME, value); } catch(e) {}
+      }
+
+      function getLocal() {
+        try { return window.localStorage.getItem(COOKIE_NAME); } catch(e) { return null; }
+      }
+
+      function injectInto(form, clickId) {
+        var sel = 'input[name="properties[' + LINE_ITEM_PROP + ']"]';
+        var existing = form.querySelector(sel);
+        if (existing) { existing.value = clickId; return; }
+        var input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'properties[' + LINE_ITEM_PROP + ']';
+        input.value = clickId;
+        form.appendChild(input);
+      }
+
+      function injectIntoAllForms(clickId) {
+        try {
+          var forms = document.querySelectorAll('form[action*="/cart/add"], form[action*="/cart/update"]');
+          for (var i = 0; i < forms.length; i++) injectInto(forms[i], clickId);
+        } catch(e) {}
+      }
+
+      function observeForNewForms(clickId) {
+        if (typeof MutationObserver === 'undefined' || !document.body) return;
+        try {
+          var observer = new MutationObserver(function(mutations) {
+            for (var i = 0; i < mutations.length; i++) {
+              var added = mutations[i].addedNodes;
+              for (var j = 0; j < added.length; j++) {
+                var node = added[j];
+                if (!node || node.nodeType !== 1) continue;
+                if (node.matches && (node.matches('form[action*="/cart/add"]') || node.matches('form[action*="/cart/update"]'))) {
+                  injectInto(node, clickId);
+                }
+                if (node.querySelectorAll) {
+                  var inner = node.querySelectorAll('form[action*="/cart/add"], form[action*="/cart/update"]');
+                  for (var k = 0; k < inner.length; k++) injectInto(inner[k], clickId);
+                }
+              }
+            }
+          });
+          observer.observe(document.body, { childList: true, subtree: true });
+        } catch(e) {}
+      }
+
+      function writeToCart(clickId) {
         try {
           fetch('/cart/update.js', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ attributes: { click_id: value } })
-          });
-        } catch (e) {}
+            body: JSON.stringify({ attributes: { click_id: clickId } })
+          }).catch(function() {});
+        } catch(e) {}
       }
 
-      if (clickId) {
-        setCookie(clickId);
-        syncToCart(clickId);
-      } else {
-        var existing = getCookie();
-        if (existing) syncToCart(existing);
-      }
+      var clickId = getUrlParam() || getCookie() || getLocal();
+      if (!clickId) return;
+
+      setCookie(clickId);
+      setLocal(clickId);
+      injectIntoAllForms(clickId);
+      observeForNewForms(clickId);
+      writeToCart(clickId);
     } catch (e) {}
   }
 })();

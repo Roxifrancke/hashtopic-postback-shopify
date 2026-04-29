@@ -4,7 +4,32 @@
       "Bash(ls -la *.toml shopify*)",
       "Bash(find . -maxdepth 3 -name \"*.toml\")",
       "Bash(ls -la *.md)",
-      "Bash(find . -maxdepth 4 -name \"*.md\" -not -path \"*/node_modules/*\")"
+      "Bash(find . -maxdepth 4 -name \"*.md\" -not -path \"*/node_modules/*\")",
+      "Bash(node --check web/backend/routes/discount-codes.js)",
+      "Bash(npm ls *)",
+      "Bash(node --check web/backend/index.js)",
+      "Bash(npm root *)",
+      "Bash(npm view *)",
+      "WebFetch(domain:shopify.dev)",
+      "Bash(node --check web/backend/db.js)",
+      "Bash(node --check web/backend/shopify-auth.js)",
+      "Bash(node --check web/backend/routes/deliveries.js)",
+      "Bash(curl -sS -o /dev/null -w \"status=%{http_code}  content-type=%{content_type}  size=%{size_download}\\\\n\" https://mystorefront-postback.onrender.com/privacy)",
+      "Bash(curl -sS https://mystorefront-postback.onrender.com/privacy)",
+      "Bash(curl -sS -o /dev/null -w \"status=%{http_code}  content-type=%{content_type}  bytes=%{size_download}\\\\n\" https://mystorefront-postback.onrender.com/privacy)",
+      "Bash(curl -sS -o /dev/null -w \"health=%{http_code}\\\\n\" https://mystorefront-postback.onrender.com/health)",
+      "Bash(curl -sS https://mystorefront-postback.onrender.com/)",
+      "Bash(curl -sS https://mystorefront-postback.onrender.com/assets/index-De_WQRBY.js)",
+      "Bash(mkdir -p /tmp/zip-fixed)",
+      "Bash(unzip -o /c/Users/jorda/Downloads/hashtopic-postback-shopify-fixed.zip -d /tmp/zip-fixed)",
+      "Bash(cp /tmp/zip-fixed/hashtopic-postback-shopify-main/extensions/click-id-capture/blocks/click-id-capture.liquid /c/Users/jorda/hashtopic-postback-shopify/extensions/click-id-capture/blocks/click-id-capture.liquid)",
+      "Bash(cp /tmp/zip-fixed/hashtopic-postback-shopify-main/web/backend/postback-sender.js /c/Users/jorda/hashtopic-postback-shopify/web/backend/postback-sender.js)",
+      "Bash(cp /tmp/zip-fixed/hashtopic-postback-shopify-main/web/backend/webhooks/index.js /c/Users/jorda/hashtopic-postback-shopify/web/backend/webhooks/index.js)",
+      "Bash(cp /tmp/zip-fixed/hashtopic-postback-shopify-main/web/tests/postback-sender.test.js /c/Users/jorda/hashtopic-postback-shopify/web/tests/postback-sender.test.js)",
+      "Bash(npm test *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(node --input-type=module -e ' *)"
     ]
   }
 }

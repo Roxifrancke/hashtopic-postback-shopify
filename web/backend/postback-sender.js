@@ -3,12 +3,60 @@ const MAX_ATTEMPTS = 5;
 const RETRY_DELAYS = [0, 300, 1800, 7200, 86400];
 
 /**
+ * Extract click_id from a Shopify order, checking sources in priority order.
+ *
+ * Priority:
+ *   1. line_items[].properties.click_id  — primary, set via product form hidden
+ *      input (`properties[click_id]`). Survives Buy It Now / Shop Pay / fast
+ *      checkout where cart attributes may not be set.
+ *   2. note_attributes (cart attribute → order note attribute)  — v1.2 fallback,
+ *      retained for backward compatibility with stores already on the older flow.
+ *   3. null  — not an affiliate order.
+ *
+ * Returns the trimmed string value, or null. Empty strings are treated as null
+ * so a stale empty property doesn't suppress the note_attributes fallback.
+ */
+export function extractClickId(order) {
+  if (!order) return null;
+
+  // 1. Primary: line item properties. First non-empty wins (any line item with
+  //    a click_id property reflects the same shopper session, but we still
+  //    take the first match for determinism).
+  const lineItems = order.line_items || [];
+  for (const item of lineItems) {
+    const props = item?.properties;
+    if (!props) continue;
+
+    // Shopify webhooks deliver line item properties as an array of
+    // { name, value } objects. Some Admin API responses (and our own test
+    // fixtures) may use a plain object — handle both.
+    if (Array.isArray(props)) {
+      const hit = props.find((p) => p?.name === "click_id");
+      const value = hit?.value;
+      if (typeof value === "string" && value.trim()) return value.trim();
+    } else if (typeof props === "object") {
+      const value = props.click_id;
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+  }
+
+  // 2. Fallback: note_attributes (cart attribute path).
+  const noteAttrs = order.note_attributes;
+  if (Array.isArray(noteAttrs)) {
+    const hit = noteAttrs.find((a) => a?.name === "click_id");
+    const value = hit?.value;
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+
+  // 3. No click_id anywhere.
+  return null;
+}
+
+/**
  * Build postback payload from a Shopify order object
  */
 export function buildPayload(shop, order, settings) {
-  const clickId = order.note_attributes?.find(
-    (a) => a.name === "click_id"
-  )?.value ?? null;
+  const clickId = extractClickId(order);
 
   const lineItems = (order.line_items || []).map((item) => ({
     product_id: item.product_id != null ? String(item.product_id) : null,
@@ -113,9 +161,7 @@ export function buildTestPayload(shop, settings) {
  * include it directly).
  */
 export function buildRefundPayload(shop, order, refund, settings) {
-  const clickId = order?.note_attributes?.find(
-    (a) => a.name === "click_id"
-  )?.value ?? null;
+  const clickId = extractClickId(order);
 
   const refundLineItems = (refund.refund_line_items || []).map((rli) => {
     const li = rli.line_item || {};

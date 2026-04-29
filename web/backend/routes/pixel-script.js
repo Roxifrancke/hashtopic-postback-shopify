@@ -34,13 +34,27 @@ pixelScriptRouter.get("/:shop/capture.js", async (req, res) => {
 
 function generateCaptureScript(paramNames, cookieName, cookieDays) {
   return `
-/* MyStorefront Postback — Click ID Capture v1.2.0 */
+/* MyStorefront Postback — Click ID Capture v1.3.0
+ *
+ * v1.3 changes:
+ *   - Inject hidden <input name="properties[click_id]"> into all product
+ *     forms so click_id rides on line item properties (works for Buy It Now,
+ *     Shop Pay, and any fast-checkout flow that bypasses the cart).
+ *   - Persist click_id in localStorage in addition to the cookie (some
+ *     embedded checkouts and PWAs scope cookies awkwardly).
+ *   - MutationObserver re-injects when AJAX/quick-view/modal forms appear.
+ *   - Cart attribute write retained as a backward-compatible fallback.
+ */
 (function() {
   'use strict';
 
   var PARAM_NAMES = ${JSON.stringify(paramNames)};
   var COOKIE_NAME = ${JSON.stringify(cookieName)};
   var COOKIE_DAYS = ${cookieDays};
+  var STORAGE_KEY = 'mystorefront_click_id';
+  var FORM_INPUT_NAME = 'properties[click_id]';
+
+  // ── Read sources ─────────────────────────────────────────────────────────
 
   function getUrlParam(names) {
     try {
@@ -51,6 +65,26 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
       }
     } catch(e) {}
     return null;
+  }
+
+  function getLocalStorage() {
+    try {
+      var v = window.localStorage && window.localStorage.getItem(STORAGE_KEY);
+      return (v && v.trim()) ? v.trim() : null;
+    } catch(e) { return null; }
+  }
+
+  function setLocalStorage(value) {
+    try {
+      if (window.localStorage) window.localStorage.setItem(STORAGE_KEY, value);
+    } catch(e) {}
+  }
+
+  function getCookie(name) {
+    try {
+      var match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\$&') + '=([^;]*)'));
+      return match ? decodeURIComponent(match[1]) : null;
+    } catch(e) { return null; }
   }
 
   function setCookie(name, value, days) {
@@ -65,18 +99,22 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
     } catch(e) {}
   }
 
-  function getCookie(name) {
-    try {
-      var match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\$&') + '=([^;]*)'));
-      return match ? decodeURIComponent(match[1]) : null;
-    } catch(e) { return null; }
+  /**
+   * Resolve the active click_id from any persisted source.
+   * URL is checked in run() and persisted before this is called, so this
+   * just returns the most-recently-stored value across localStorage / cookie.
+   */
+  function getStoredClickId() {
+    return getLocalStorage() || getCookie(COOKIE_NAME);
   }
+
+  // ── Cart attribute write (backward-compatible fallback) ──────────────────
 
   /**
    * Write the click_id into the Shopify cart as a note attribute.
-   * This ensures it appears in order.note_attributes when the order is created,
-   * so the postback sender can read it — even if the cookie isn't accessible
-   * server-side (which it isn't in Shopify's architecture).
+   * Retained for backward compatibility — line item properties are now the
+   * primary attribution channel, but this still helps stores that have not
+   * yet rolled out the form-injection path on every product template.
    */
   function writeToCart(clickId) {
     try {
@@ -90,21 +128,121 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
     } catch(e) {}
   }
 
+  // ── Form injection (primary attribution channel) ─────────────────────────
+
+  /**
+   * Heuristic for "is this a Shopify product/add-to-cart form".
+   * Matches the standard /cart/add action and the legacy product_form_*
+   * pattern used by many themes. Falls back to forms with an explicit
+   * data-product-form attribute.
+   */
+  function isProductForm(form) {
+    if (!form || form.tagName !== 'FORM') return false;
+    var action = (form.getAttribute('action') || '').toLowerCase();
+    if (action.indexOf('/cart/add') !== -1) return true;
+    if (form.hasAttribute('data-product-form')) return true;
+    var id = form.id || '';
+    if (/^product_form_/i.test(id)) return true;
+    return false;
+  }
+
+  /**
+   * Inject the hidden click_id input into a single form.
+   *
+   * Idempotent: if a properties[click_id] input already exists in the form
+   * (whether placed by us, by the theme, or by another script), we do NOT
+   * overwrite it. This protects custom merchant flows that may already be
+   * setting click_id explicitly and means re-running injection is safe.
+   */
+  function injectIntoForm(form, clickId) {
+    if (!form || !clickId) return;
+
+    // Already has properties[click_id]? Don't touch it.
+    var existing = form.querySelector('input[name="' + FORM_INPUT_NAME + '"]');
+    if (existing) return;
+
+    var input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = FORM_INPUT_NAME;
+    input.value = clickId;
+    input.setAttribute('data-mystorefront-postback', '1');
+    form.appendChild(input);
+  }
+
+  function injectIntoAllForms(clickId) {
+    if (!clickId) return;
+    var forms = document.querySelectorAll('form');
+    for (var i = 0; i < forms.length; i++) {
+      if (isProductForm(forms[i])) injectIntoForm(forms[i], clickId);
+    }
+  }
+
+  /**
+   * Watch the DOM for new product forms (AJAX product pages, quick-view
+   * modals, drawer carts that re-render product cards, etc.) and inject
+   * into them as they appear.
+   */
+  function startMutationObserver() {
+    if (typeof MutationObserver === 'undefined') return;
+
+    var observer = new MutationObserver(function(mutations) {
+      var clickId = getStoredClickId();
+      if (!clickId) return;
+
+      for (var i = 0; i < mutations.length; i++) {
+        var added = mutations[i].addedNodes;
+        if (!added || !added.length) continue;
+
+        for (var j = 0; j < added.length; j++) {
+          var node = added[j];
+          if (node.nodeType !== 1) continue; // ELEMENT_NODE only
+
+          // The added node itself might be a product form…
+          if (isProductForm(node)) {
+            injectIntoForm(node, clickId);
+          }
+          // …or it might contain product forms (e.g. a modal wrapper).
+          if (node.querySelectorAll) {
+            var nested = node.querySelectorAll('form');
+            for (var k = 0; k < nested.length; k++) {
+              if (isProductForm(nested[k])) injectIntoForm(nested[k], clickId);
+            }
+          }
+        }
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  // ── Main flow ────────────────────────────────────────────────────────────
+
   function run() {
-    // 1. Capture from URL (priority — overrides existing cookie)
+    // 1. URL → persist everywhere (URL always wins over stored value).
     var fromUrl = getUrlParam(PARAM_NAMES);
+    var clickId = fromUrl;
+
     if (fromUrl) {
       setCookie(COOKIE_NAME, fromUrl, COOKIE_DAYS);
-      writeToCart(fromUrl);
-      return;
+      setLocalStorage(fromUrl);
+      writeToCart(fromUrl); // backward-compat fallback
+    } else {
+      // 2. No URL param — fall back to whatever we already have stored.
+      clickId = getStoredClickId();
+      if (clickId) {
+        // Mirror across stores so a localStorage-only or cookie-only state
+        // gets healed back into both.
+        setLocalStorage(clickId);
+        setCookie(COOKIE_NAME, clickId, COOKIE_DAYS);
+        writeToCart(clickId); // backward-compat fallback
+      }
     }
 
-    // 2. No URL param — check for existing cookie and re-write to cart
-    // (handles case where shopper returns on a subsequent page load)
-    var fromCookie = getCookie(COOKIE_NAME);
-    if (fromCookie) {
-      writeToCart(fromCookie);
-    }
+    // 3. Primary attribution channel: inject into every product form on the
+    //    page right now, then watch for new ones. Safe even if clickId is
+    //    falsy — both helpers no-op in that case.
+    injectIntoAllForms(clickId);
+    startMutationObserver();
   }
 
   if (document.readyState === 'loading') {

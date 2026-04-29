@@ -15,6 +15,7 @@ import {
   buildPayload,
   buildRefundPayload,
   buildTestPayload,
+  extractClickId,
   nextRetryAt,
 } from "../backend/postback-sender.js";
 
@@ -297,4 +298,241 @@ test("attribution chain — first matching note_attribute wins on duplicates", (
   });
   const payload = buildPayload("shop.myshopify.com", orderFromShopify, {});
   assert.equal(payload.click_id, "first_click");
+});
+
+// ── v1.3: line-item-properties is the primary source ───────────────────────
+//
+// In v1.3 the storefront capture script injects a hidden
+// `<input name="properties[click_id]">` into product forms, so click_id
+// arrives on each line_item.properties (Shopify webhook delivers them as
+// an array of {name, value} objects). This is robust to Buy It Now and
+// Shop Pay flows that bypass the cart and therefore never get a cart
+// attribute set.
+//
+// The extractor must:
+//   1. prefer line_items[].properties.click_id over note_attributes
+//   2. fall back to note_attributes if no line item property is set
+//   3. return null safely when neither source has a click_id
+//   4. handle multiple line items (first non-empty wins)
+
+test("extractClickId — line item property (array form) is primary source", () => {
+  const order = makeOrder({
+    note_attributes: [{ name: "click_id", value: "from_cart_attribute" }],
+    line_items: [
+      {
+        product_id: 111,
+        variant_id: 222,
+        sku: "SKU-A",
+        title: "Product A",
+        quantity: 1,
+        price: "50.00",
+        total_discount: "0.00",
+        properties: [{ name: "click_id", value: "from_line_item" }],
+      },
+    ],
+  });
+  // Line item beats note_attribute when both are present.
+  assert.equal(extractClickId(order), "from_line_item");
+});
+
+test("extractClickId — line item property (object form) is also recognised", () => {
+  // Some Admin API responses serialise properties as a plain object rather
+  // than the {name,value}[] shape the webhook uses. Both must work.
+  const order = makeOrder({
+    note_attributes: [],
+    line_items: [
+      {
+        product_id: 111,
+        variant_id: 222,
+        sku: "SKU-A",
+        title: "Product A",
+        quantity: 1,
+        price: "50.00",
+        total_discount: "0.00",
+        properties: { click_id: "from_object_form" },
+      },
+    ],
+  });
+  assert.equal(extractClickId(order), "from_object_form");
+});
+
+test("extractClickId — falls back to note_attributes when no line item property", () => {
+  const order = makeOrder({
+    note_attributes: [{ name: "click_id", value: "fallback_value" }],
+    line_items: [
+      {
+        product_id: 111,
+        variant_id: 222,
+        sku: "SKU-A",
+        title: "Product A",
+        quantity: 1,
+        price: "50.00",
+        total_discount: "0.00",
+        properties: [], // no click_id in line items
+      },
+    ],
+  });
+  assert.equal(extractClickId(order), "fallback_value");
+});
+
+test("extractClickId — returns null when neither source has click_id", () => {
+  const order = makeOrder({
+    note_attributes: [{ name: "other_field", value: "nope" }],
+    line_items: [
+      {
+        product_id: 111,
+        sku: "SKU-A",
+        quantity: 1,
+        price: "50.00",
+        properties: [{ name: "gift_message", value: "Happy birthday" }],
+      },
+    ],
+  });
+  assert.equal(extractClickId(order), null);
+});
+
+test("extractClickId — multi line item: first line item with click_id wins", () => {
+  const order = makeOrder({
+    note_attributes: [],
+    line_items: [
+      {
+        product_id: 111,
+        sku: "SKU-A",
+        quantity: 1,
+        price: "10.00",
+        properties: [{ name: "gift_message", value: "no click_id here" }],
+      },
+      {
+        product_id: 222,
+        sku: "SKU-B",
+        quantity: 1,
+        price: "20.00",
+        properties: [{ name: "click_id", value: "second_item_click" }],
+      },
+      {
+        product_id: 333,
+        sku: "SKU-C",
+        quantity: 1,
+        price: "30.00",
+        properties: [{ name: "click_id", value: "third_item_click" }],
+      },
+    ],
+  });
+  // First line item that actually carries click_id wins (deterministic).
+  assert.equal(extractClickId(order), "second_item_click");
+});
+
+test("extractClickId — empty/whitespace property doesn't suppress note_attribute fallback", () => {
+  // A stale empty value on a line item must not block the note_attributes
+  // fallback — otherwise a cleared form would silently lose attribution.
+  const order = makeOrder({
+    note_attributes: [{ name: "click_id", value: "fallback_wins" }],
+    line_items: [
+      {
+        product_id: 111,
+        sku: "SKU-A",
+        quantity: 1,
+        price: "10.00",
+        properties: [{ name: "click_id", value: "   " }],
+      },
+    ],
+  });
+  assert.equal(extractClickId(order), "fallback_wins");
+});
+
+test("extractClickId — values are trimmed", () => {
+  const order = makeOrder({
+    note_attributes: [],
+    line_items: [
+      {
+        product_id: 111,
+        sku: "SKU-A",
+        quantity: 1,
+        price: "10.00",
+        properties: [{ name: "click_id", value: "  trimmed_id  " }],
+      },
+    ],
+  });
+  assert.equal(extractClickId(order), "trimmed_id");
+});
+
+test("extractClickId — handles null/undefined order safely", () => {
+  assert.equal(extractClickId(null), null);
+  assert.equal(extractClickId(undefined), null);
+  assert.equal(extractClickId({}), null);
+});
+
+test("extractClickId — handles missing line_items array", () => {
+  const order = {
+    note_attributes: [{ name: "click_id", value: "from_notes" }],
+  };
+  // No line_items at all → still finds the note attribute.
+  assert.equal(extractClickId(order), "from_notes");
+});
+
+// ── v1.3: integration — buildPayload uses the new priority ─────────────────
+
+test("buildPayload — v1.3: line item properties take priority over note_attributes", () => {
+  const order = makeOrder({
+    note_attributes: [{ name: "click_id", value: "old_cart_attribute" }],
+    line_items: [
+      {
+        product_id: 111,
+        variant_id: 222,
+        sku: "SKU-A",
+        title: "Product A",
+        quantity: 2,
+        price: "50.00",
+        total_discount: "5.00",
+        properties: [{ name: "click_id", value: "new_line_item_click" }],
+      },
+    ],
+  });
+  const payload = buildPayload("shop.myshopify.com", order, {});
+  assert.equal(payload.click_id, "new_line_item_click");
+});
+
+test("buildPayload — v1.3: simulates Buy It Now flow (line item only, no cart attr)", () => {
+  // In Buy It Now / Shop Pay express checkout, /cart/update.js is never
+  // called, so note_attributes will be empty. The hidden form input is
+  // the only attribution channel that survives.
+  const order = makeOrder({
+    note_attributes: [], // cart attribute write didn't happen
+    line_items: [
+      {
+        product_id: 111,
+        sku: "SKU-A",
+        title: "Product A",
+        quantity: 1,
+        price: "50.00",
+        total_discount: "0.00",
+        properties: [{ name: "click_id", value: "buy_it_now_click" }],
+      },
+    ],
+  });
+  const payload = buildPayload("shop.myshopify.com", order, {});
+  assert.equal(payload.click_id, "buy_it_now_click");
+});
+
+test("buildRefundPayload — v1.3: extracts click_id from parent order line items", () => {
+  // Parent order's line items carry click_id (v1.3 path), refund webhook
+  // fetches the parent order, refund payload still gets attribution.
+  const order = makeOrder({
+    note_attributes: [],
+    line_items: [
+      {
+        product_id: 111,
+        variant_id: 222,
+        sku: "SKU-A",
+        title: "Product A",
+        quantity: 2,
+        price: "50.00",
+        total_discount: "5.00",
+        properties: [{ name: "click_id", value: "refund_click_id" }],
+      },
+    ],
+  });
+  const refund = makeRefund();
+  const payload = buildRefundPayload("shop.myshopify.com", order, refund, {});
+  assert.equal(payload.click_id, "refund_click_id");
 });
