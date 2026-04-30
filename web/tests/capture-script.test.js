@@ -255,7 +255,7 @@ test("capture script — injects hidden input into product form when click_id in
 
   runCaptureScript(env);
 
-  const inputs = form.querySelectorAll('input[name="properties[click_id]"]');
+  const inputs = form.querySelectorAll('input[name="properties[_MyStorefront click_id]"]');
   assert.equal(inputs.length, 1, "exactly one hidden input should be injected");
   assert.equal(inputs[0].value, "urlclick");
   assert.equal(inputs[0].type, "hidden");
@@ -279,7 +279,7 @@ test("capture script — uses localStorage when URL param absent", () => {
 
   runCaptureScript(env);
 
-  const input = form.querySelector('input[name="properties[click_id]"]');
+  const input = form.querySelector('input[name="properties[_MyStorefront click_id]"]');
   assert.ok(input, "input should be injected from localStorage value");
   assert.equal(input.value, "from_storage");
 });
@@ -290,25 +290,25 @@ test("capture script — does nothing when no URL param and no stored click_id",
 
   runCaptureScript(env);
 
-  const inputs = form.querySelectorAll('input[name="properties[click_id]"]');
+  const inputs = form.querySelectorAll('input[name="properties[_MyStorefront click_id]"]');
   assert.equal(inputs.length, 0, "no injection when nothing to attribute");
 });
 
 // ── Tests: idempotency / no overwrite ───────────────────────────────────────
 
-test("capture script — does not overwrite existing properties[click_id] input", () => {
+test("capture script — does not overwrite existing properties[_MyStorefront click_id] input", () => {
   const env = makeBrowserEnv({ url: "https://shop.example.com/products/x?click_id=urlclick" });
   const form = makeProductForm(env.document);
   // Theme or another script already placed one — must be preserved.
   const existing = env.document.createElement("input");
   existing.type = "hidden";
-  existing.name = "properties[click_id]";
+  existing.name = "properties[_MyStorefront click_id]";
   existing.value = "preserve_me";
   form.appendChild(existing);
 
   runCaptureScript(env);
 
-  const inputs = form.querySelectorAll('input[name="properties[click_id]"]');
+  const inputs = form.querySelectorAll('input[name="properties[_MyStorefront click_id]"]');
   assert.equal(inputs.length, 1, "should not duplicate");
   assert.equal(inputs[0].value, "preserve_me", "existing value must be preserved");
 });
@@ -323,7 +323,7 @@ test("capture script — re-running injection is safe (no duplicates)", () => {
   env.document.body.appendChild(makeElement("div")); // triggers observer
   flushObservers(env);
 
-  const inputs = form.querySelectorAll('input[name="properties[click_id]"]');
+  const inputs = form.querySelectorAll('input[name="properties[_MyStorefront click_id]"]');
   assert.equal(inputs.length, 1, "still exactly one injection");
 });
 
@@ -338,7 +338,7 @@ test("capture script — does NOT inject into non-product forms", () => {
 
   runCaptureScript(env);
 
-  const inputs = newsletter.querySelectorAll('input[name="properties[click_id]"]');
+  const inputs = newsletter.querySelectorAll('input[name="properties[_MyStorefront click_id]"]');
   assert.equal(inputs.length, 0, "non-product forms must be left alone");
 });
 
@@ -351,7 +351,7 @@ test("capture script — recognises legacy product_form_* id pattern", () => {
 
   runCaptureScript(env);
 
-  const input = form.querySelector('input[name="properties[click_id]"]');
+  const input = form.querySelector('input[name="properties[_MyStorefront click_id]"]');
   assert.ok(input, "legacy product_form_* id should be detected");
   assert.equal(input.value, "urlclick");
 });
@@ -364,7 +364,7 @@ test("capture script — recognises data-product-form attribute", () => {
 
   runCaptureScript(env);
 
-  const input = form.querySelector('input[name="properties[click_id]"]');
+  const input = form.querySelector('input[name="properties[_MyStorefront click_id]"]');
   assert.ok(input, "data-product-form attribute should be detected");
 });
 
@@ -381,7 +381,7 @@ test("capture script — injects into AJAX/quick-view form added after load", ()
   env.document.body.appendChild(lateForm);
   flushObservers(env);
 
-  const input = lateForm.querySelector('input[name="properties[click_id]"]');
+  const input = lateForm.querySelector('input[name="properties[_MyStorefront click_id]"]');
   assert.ok(input, "MutationObserver should inject into late-added form");
   assert.equal(input.value, "urlclick");
 });
@@ -398,7 +398,7 @@ test("capture script — injects into product form nested inside an added wrappe
   env.document.body.appendChild(modal);
   flushObservers(env);
 
-  const input = nestedForm.querySelector('input[name="properties[click_id]"]');
+  const input = nestedForm.querySelector('input[name="properties[_MyStorefront click_id]"]');
   assert.ok(input, "should walk into the added subtree to find product forms");
   assert.equal(input.value, "urlclick");
 });
@@ -413,6 +413,6 @@ test("capture script — URL param overrides existing localStorage value", () =>
   runCaptureScript(env);
 
   assert.equal(env._localStorageStore.mystorefront_click_id, "newer");
-  const input = form.querySelector('input[name="properties[click_id]"]');
+  const input = form.querySelector('input[name="properties[_MyStorefront click_id]"]');
   assert.equal(input.value, "newer");
 });

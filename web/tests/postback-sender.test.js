@@ -35,7 +35,7 @@ function makeOrder(overrides = {}) {
     email: "buyer@example.com",
     customer: { email: "buyer@example.com", phone: "+27821234567" },
     note_attributes: [
-      { name: "click_id", value: "abc123xyz" },
+      { name: "MyStorefront click_id", value: "abc123xyz" },
       { name: "other_field", value: "ignored" },
     ],
     line_items: [
@@ -281,9 +281,9 @@ test("nextRetryAt — schedules subsequent retries in the future", () => {
 
 test("attribution chain — click_id from cart attribute appears as note_attribute", () => {
   // Simulates what Shopify produces when the storefront capture script
-  // sets `attributes: { click_id: 'xyz' }` on the cart.
+  // sets `attributes: { 'MyStorefront click_id': 'xyz' }` on the cart.
   const orderFromShopify = makeOrder({
-    note_attributes: [{ name: "click_id", value: "campaign_summer_2026" }],
+    note_attributes: [{ name: "MyStorefront click_id", value: "campaign_summer_2026" }],
   });
   const payload = buildPayload("shop.myshopify.com", orderFromShopify, {});
   assert.equal(payload.click_id, "campaign_summer_2026");
@@ -292,8 +292,8 @@ test("attribution chain — click_id from cart attribute appears as note_attribu
 test("attribution chain — first matching note_attribute wins on duplicates", () => {
   const orderFromShopify = makeOrder({
     note_attributes: [
-      { name: "click_id", value: "first_click" },
-      { name: "click_id", value: "second_click" },
+      { name: "MyStorefront click_id", value: "first_click" },
+      { name: "MyStorefront click_id", value: "second_click" },
     ],
   });
   const payload = buildPayload("shop.myshopify.com", orderFromShopify, {});
@@ -317,7 +317,7 @@ test("attribution chain — first matching note_attribute wins on duplicates", (
 
 test("extractClickId — line item property (array form) is primary source", () => {
   const order = makeOrder({
-    note_attributes: [{ name: "click_id", value: "from_cart_attribute" }],
+    note_attributes: [{ name: "MyStorefront click_id", value: "from_cart_attribute" }],
     line_items: [
       {
         product_id: 111,
@@ -327,7 +327,7 @@ test("extractClickId — line item property (array form) is primary source", () 
         quantity: 1,
         price: "50.00",
         total_discount: "0.00",
-        properties: [{ name: "click_id", value: "from_line_item" }],
+        properties: [{ name: "_MyStorefront click_id", value: "from_line_item" }],
       },
     ],
   });
@@ -349,7 +349,7 @@ test("extractClickId — line item property (object form) is also recognised", (
         quantity: 1,
         price: "50.00",
         total_discount: "0.00",
-        properties: { click_id: "from_object_form" },
+        properties: { "_MyStorefront click_id": "from_object_form" },
       },
     ],
   });
@@ -358,7 +358,7 @@ test("extractClickId — line item property (object form) is also recognised", (
 
 test("extractClickId — falls back to note_attributes when no line item property", () => {
   const order = makeOrder({
-    note_attributes: [{ name: "click_id", value: "fallback_value" }],
+    note_attributes: [{ name: "MyStorefront click_id", value: "fallback_value" }],
     line_items: [
       {
         product_id: 111,
@@ -407,14 +407,14 @@ test("extractClickId — multi line item: first line item with click_id wins", (
         sku: "SKU-B",
         quantity: 1,
         price: "20.00",
-        properties: [{ name: "click_id", value: "second_item_click" }],
+        properties: [{ name: "_MyStorefront click_id", value: "second_item_click" }],
       },
       {
         product_id: 333,
         sku: "SKU-C",
         quantity: 1,
         price: "30.00",
-        properties: [{ name: "click_id", value: "third_item_click" }],
+        properties: [{ name: "_MyStorefront click_id", value: "third_item_click" }],
       },
     ],
   });
@@ -426,14 +426,14 @@ test("extractClickId — empty/whitespace property doesn't suppress note_attribu
   // A stale empty value on a line item must not block the note_attributes
   // fallback — otherwise a cleared form would silently lose attribution.
   const order = makeOrder({
-    note_attributes: [{ name: "click_id", value: "fallback_wins" }],
+    note_attributes: [{ name: "MyStorefront click_id", value: "fallback_wins" }],
     line_items: [
       {
         product_id: 111,
         sku: "SKU-A",
         quantity: 1,
         price: "10.00",
-        properties: [{ name: "click_id", value: "   " }],
+        properties: [{ name: "_MyStorefront click_id", value: "   " }],
       },
     ],
   });
@@ -449,7 +449,7 @@ test("extractClickId — values are trimmed", () => {
         sku: "SKU-A",
         quantity: 1,
         price: "10.00",
-        properties: [{ name: "click_id", value: "  trimmed_id  " }],
+        properties: [{ name: "_MyStorefront click_id", value: "  trimmed_id  " }],
       },
     ],
   });
@@ -464,7 +464,7 @@ test("extractClickId — handles null/undefined order safely", () => {
 
 test("extractClickId — handles missing line_items array", () => {
   const order = {
-    note_attributes: [{ name: "click_id", value: "from_notes" }],
+    note_attributes: [{ name: "MyStorefront click_id", value: "from_notes" }],
   };
   // No line_items at all → still finds the note attribute.
   assert.equal(extractClickId(order), "from_notes");
@@ -474,7 +474,7 @@ test("extractClickId — handles missing line_items array", () => {
 
 test("buildPayload — v1.3: line item properties take priority over note_attributes", () => {
   const order = makeOrder({
-    note_attributes: [{ name: "click_id", value: "old_cart_attribute" }],
+    note_attributes: [{ name: "MyStorefront click_id", value: "old_cart_attribute" }],
     line_items: [
       {
         product_id: 111,
@@ -484,7 +484,7 @@ test("buildPayload — v1.3: line item properties take priority over note_attrib
         quantity: 2,
         price: "50.00",
         total_discount: "5.00",
-        properties: [{ name: "click_id", value: "new_line_item_click" }],
+        properties: [{ name: "_MyStorefront click_id", value: "new_line_item_click" }],
       },
     ],
   });
@@ -506,7 +506,7 @@ test("buildPayload — v1.3: simulates Buy It Now flow (line item only, no cart 
         quantity: 1,
         price: "50.00",
         total_discount: "0.00",
-        properties: [{ name: "click_id", value: "buy_it_now_click" }],
+        properties: [{ name: "_MyStorefront click_id", value: "buy_it_now_click" }],
       },
     ],
   });
@@ -528,11 +528,84 @@ test("buildRefundPayload — v1.3: extracts click_id from parent order line item
         quantity: 2,
         price: "50.00",
         total_discount: "5.00",
-        properties: [{ name: "click_id", value: "refund_click_id" }],
+        properties: [{ name: "_MyStorefront click_id", value: "refund_click_id" }],
       },
     ],
   });
   const refund = makeRefund();
   const payload = buildRefundPayload("shop.myshopify.com", order, refund, {});
   assert.equal(payload.click_id, "refund_click_id");
+});
+
+// ── v1.4: backward compatibility with legacy property names ─────────────────
+//
+// The v1.4 deploy renames the storefront-set names to:
+//   line item:  "_MyStorefront click_id"  (underscore hides from cart/checkout)
+//   note attr:  "MyStorefront click_id"   (cleaner admin display)
+//
+// Carts/orders placed before the deploy may still carry the legacy names
+// "click_id" (main script) or "_click_id" (inline fallback). These tests
+// guard the backward-compat branch in extractClickId so attribution doesn't
+// silently break for in-flight orders during the rollover window.
+
+test("extractClickId — v1.4 backward compat: legacy 'click_id' line item property still works", () => {
+  const order = makeOrder({
+    note_attributes: [],
+    line_items: [
+      {
+        product_id: 111,
+        sku: "SKU-A",
+        quantity: 1,
+        price: "10.00",
+        properties: [{ name: "click_id", value: "legacy_value" }],
+      },
+    ],
+  });
+  assert.equal(extractClickId(order), "legacy_value");
+});
+
+test("extractClickId — v1.4 backward compat: legacy '_click_id' line item property still works", () => {
+  // Pre-v1.4 inline fallback used '_click_id'. Should still attribute.
+  const order = makeOrder({
+    note_attributes: [],
+    line_items: [
+      {
+        product_id: 111,
+        sku: "SKU-A",
+        quantity: 1,
+        price: "10.00",
+        properties: [{ name: "_click_id", value: "legacy_fallback_value" }],
+      },
+    ],
+  });
+  assert.equal(extractClickId(order), "legacy_fallback_value");
+});
+
+test("extractClickId — v1.4 backward compat: legacy 'click_id' note_attribute still works", () => {
+  const order = makeOrder({
+    note_attributes: [{ name: "click_id", value: "legacy_note_attr" }],
+    line_items: [],
+  });
+  assert.equal(extractClickId(order), "legacy_note_attr");
+});
+
+test("extractClickId — v1.4: new name beats legacy when both present on the same line item", () => {
+  // Defensive: if a cart carries both names (e.g. a script bug duplicates),
+  // the current name wins so we don't suddenly start attributing to stale data.
+  const order = makeOrder({
+    note_attributes: [],
+    line_items: [
+      {
+        product_id: 111,
+        sku: "SKU-A",
+        quantity: 1,
+        price: "10.00",
+        properties: [
+          { name: "_MyStorefront click_id", value: "current" },
+          { name: "click_id", value: "legacy" },
+        ],
+      },
+    ],
+  });
+  assert.equal(extractClickId(order), "current");
 });

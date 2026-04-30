@@ -44,14 +44,21 @@ res.set({
 
 function generateCaptureScript(paramNames, cookieName, cookieDays) {
   return `
-/* MyStorefront Postback — Click ID Capture v1.3.0
+/* MyStorefront Postback — Click ID Capture v1.4.0
  *
- * v1.3 changes:
- *   - Inject hidden <input name="properties[click_id]"> into all product
- *     forms so click_id rides on line item properties (works for Buy It Now,
- *     Shop Pay, and any fast-checkout flow that bypasses the cart).
- *   - Persist click_id in localStorage in addition to the cookie (some
- *     embedded checkouts and PWAs scope cookies awkwardly).
+ * v1.4 changes:
+ *   - Rename storefront-set names to be MyStorefront-branded in admin:
+ *       line item:  properties[_MyStorefront click_id]   (underscore hides
+ *                                                          from cart/checkout)
+ *       cart attr:  attributes['MyStorefront click_id']  (admin only)
+ *     The cookie, URL param, and outbound postback payload field all stay
+ *     as plain "click_id" — only the admin display labels change.
+ *
+ * v1.3 (still in effect):
+ *   - Inject hidden line-item input on every product form so attribution
+ *     survives Buy It Now / Shop Pay / fast-checkout flows that bypass the
+ *     cart.
+ *   - Persist click_id in localStorage in addition to the cookie.
  *   - MutationObserver re-injects when AJAX/quick-view/modal forms appear.
  *   - Cart attribute write retained as a backward-compatible fallback.
  */
@@ -64,7 +71,14 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
   var STORAGE_KEY = 'mystorefront_click_id';
   var STORAGE_TS_KEY = 'mystorefront_click_id_ts';
   var EXPIRY_DAYS = 7;
-  var FORM_INPUT_NAME = 'properties[click_id]';
+  // Line item property: leading underscore hides from cart/checkout/customer
+  // emails (Shopify convention). Admin still shows it under each line item.
+  var LINE_ITEM_PROP_NAME = '_MyStorefront click_id';
+  var FORM_INPUT_NAME = 'properties[' + LINE_ITEM_PROP_NAME + ']';
+  // Cart attribute → order note_attribute. No underscore needed: cart attrs
+  // are not rendered in cart/checkout by default. Admin shows it under
+  // "Additional details".
+  var CART_ATTR_NAME = 'MyStorefront click_id';
 
   // ── Read sources ─────────────────────────────────────────────────────────
 
@@ -149,12 +163,12 @@ function getStoredClickId() {
    */
   function writeToCart(clickId) {
     try {
+      var attrs = {};
+      attrs[CART_ATTR_NAME] = clickId;
       fetch('/cart/update.js', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          attributes: { 'click_id': clickId }
-        })
+        body: JSON.stringify({ attributes: attrs })
       }).catch(function() {});
     } catch(e) {}
   }

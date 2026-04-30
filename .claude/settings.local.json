@@ -29,7 +29,8 @@
       "Bash(npm test *)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(node --input-type=module -e ' *)"
+      "Bash(node --input-type=module -e ' *)",
+      "Bash(npm --prefix web test)"
     ]
   }
 }

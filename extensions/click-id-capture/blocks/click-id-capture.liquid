@@ -10,8 +10,10 @@
   A self-contained inline fallback runs only if the external script fails to
   load (e.g. the app backend is unreachable). The fallback mirrors the main
   script's three-layer attribution:
-    1. Hidden input on add-to-cart forms (line-item property _click_id)
-    2. Cart attribute via /cart/update.js (order note_attribute click_id)
+    1. Hidden input on add-to-cart forms (line-item property
+       "_MyStorefront click_id" — underscore hides it from cart/checkout)
+    2. Cart attribute via /cart/update.js (order note_attribute
+       "MyStorefront click_id")
     3. Cookie + localStorage persistence (URL > cookie > localStorage)
 {%- endcomment -%}
 
@@ -33,7 +35,12 @@
     try {
       var COOKIE_NAME = 'click_id';
       var COOKIE_DAYS = 30;
-      var LINE_ITEM_PROP = '_click_id';
+      // Underscore prefix hides the line item property from cart/checkout/
+      // customer emails. Admin still shows "_MyStorefront click_id" against
+      // each line item. Must match the value used in pixel-script.js so the
+      // backend extractor finds it.
+      var LINE_ITEM_PROP = '_MyStorefront click_id';
+      var CART_ATTR_NAME = 'MyStorefront click_id';
 
       function getUrlParam() {
         try {
@@ -108,10 +115,12 @@
 
       function writeToCart(clickId) {
         try {
+          var attrs = {};
+          attrs[CART_ATTR_NAME] = clickId;
           fetch('/cart/update.js', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ attributes: { click_id: clickId } })
+            body: JSON.stringify({ attributes: attrs })
           }).catch(function() {});
         } catch(e) {}
       }

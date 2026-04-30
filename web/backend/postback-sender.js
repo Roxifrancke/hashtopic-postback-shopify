@@ -2,16 +2,37 @@ const MAX_ATTEMPTS = 5;
 // Retry delays in seconds: immediate(0), +5m, +30m, +2h, +24h
 const RETRY_DELAYS = [0, 300, 1800, 7200, 86400];
 
+// Property/attribute names that may carry click_id, in priority order.
+//
+// New names (v1.4+) are MyStorefront-branded so the value is recognisable
+// in the Shopify admin order page. The leading underscore on the line item
+// property is what hides it from the customer-facing cart/checkout — it's
+// kept in the admin display.
+//
+// Legacy names are still recognised so any in-flight orders/carts placed
+// before the v1.4 deploy don't lose attribution. They can be removed once
+// no v1.3-or-earlier carts are in flight (~30 days post-deploy, matching
+// cookie TTL).
+const LINE_ITEM_PROP_NAMES = [
+  "_MyStorefront click_id", // current
+  "click_id",                // legacy v1.2/v1.3 main script
+  "_click_id",               // legacy v1.3 fallback
+];
+const NOTE_ATTR_NAMES = [
+  "MyStorefront click_id", // current
+  "click_id",              // legacy
+];
+
 /**
  * Extract click_id from a Shopify order, checking sources in priority order.
  *
  * Priority:
- *   1. line_items[].properties.click_id  — primary, set via product form hidden
- *      input (`properties[click_id]`). Survives Buy It Now / Shop Pay / fast
- *      checkout where cart attributes may not be set.
- *   2. note_attributes (cart attribute → order note attribute)  — v1.2 fallback,
- *      retained for backward compatibility with stores already on the older flow.
- *   3. null  — not an affiliate order.
+ *   1. line_items[].properties — primary, set via product form hidden input.
+ *      Survives Buy It Now / Shop Pay / fast checkout where cart attributes
+ *      may not be set. Tries each known property name (current + legacy).
+ *   2. note_attributes — cart attribute path, retained as backward-compat
+ *      fallback for stores on the older flow.
+ *   3. null — not an affiliate order.
  *
  * Returns the trimmed string value, or null. Empty strings are treated as null
  * so a stale empty property doesn't suppress the note_attributes fallback.
@@ -19,9 +40,7 @@ const RETRY_DELAYS = [0, 300, 1800, 7200, 86400];
 export function extractClickId(order) {
   if (!order) return null;
 
-  // 1. Primary: line item properties. First non-empty wins (any line item with
-  //    a click_id property reflects the same shopper session, but we still
-  //    take the first match for determinism).
+  // 1. Primary: line item properties. First non-empty wins.
   const lineItems = order.line_items || [];
   for (const item of lineItems) {
     const props = item?.properties;
@@ -31,21 +50,27 @@ export function extractClickId(order) {
     // { name, value } objects. Some Admin API responses (and our own test
     // fixtures) may use a plain object — handle both.
     if (Array.isArray(props)) {
-      const hit = props.find((p) => p?.name === "click_id");
-      const value = hit?.value;
-      if (typeof value === "string" && value.trim()) return value.trim();
+      for (const propName of LINE_ITEM_PROP_NAMES) {
+        const hit = props.find((p) => p?.name === propName);
+        const value = hit?.value;
+        if (typeof value === "string" && value.trim()) return value.trim();
+      }
     } else if (typeof props === "object") {
-      const value = props.click_id;
-      if (typeof value === "string" && value.trim()) return value.trim();
+      for (const propName of LINE_ITEM_PROP_NAMES) {
+        const value = props[propName];
+        if (typeof value === "string" && value.trim()) return value.trim();
+      }
     }
   }
 
   // 2. Fallback: note_attributes (cart attribute path).
   const noteAttrs = order.note_attributes;
   if (Array.isArray(noteAttrs)) {
-    const hit = noteAttrs.find((a) => a?.name === "click_id");
-    const value = hit?.value;
-    if (typeof value === "string" && value.trim()) return value.trim();
+    for (const attrName of NOTE_ATTR_NAMES) {
+      const hit = noteAttrs.find((a) => a?.name === attrName);
+      const value = hit?.value;
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
   }
 
   // 3. No click_id anywhere.
