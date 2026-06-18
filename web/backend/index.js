@@ -36,7 +36,11 @@ import { ApiVersion } from "@shopify/shopify-api";
 import { restResources } from "@shopify/shopify-api/rest/admin/2025-04";
 
 import { getSettings, getShopifyTokenSet } from "./db.js";
-import { persistShopifyTokens } from "./shopify-auth.js";
+import {
+  persistShopifyTokens,
+  needsOfflineProvision,
+  provisionOfflineTokenFromSession,
+} from "./shopify-auth.js";
 import settingsRouter from "./routes/settings.js";
 import deliveriesRouter from "./routes/deliveries.js";
 import webhookHandlers from "./webhooks/index.js";
@@ -335,6 +339,15 @@ app.use("/api/*", async (req, res, next) => {
         const shop = dest.replace("https://", "");
         if (notExpired && shop && shop.includes(".myshopify.com")) {
           res.locals.shopify = { session: { shop } };
+          // Keep the offline Admin token fresh for server-to-server callers
+          // (discount-code sync). Fire-and-forget so it never blocks the
+          // request; it uses THIS fresh session token, so it can't thrash the
+          // single-use refresh token. Only exchanges when actually needed.
+          needsOfflineProvision(shop)
+            .then((need) =>
+              need ? provisionOfflineTokenFromSession(shopify, shop, token) : null
+            )
+            .catch(() => {});
           return next();
         }
       }

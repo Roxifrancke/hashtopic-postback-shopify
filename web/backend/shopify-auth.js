@@ -167,3 +167,72 @@ export async function getValidAccessToken(shopify, shop) {
 
   return tokens.accessToken || null;
 }
+
+// ── Offline-token provisioning from an embedded session token ────────────────
+//
+// Server-to-server callers (e.g. MyStorefront's discount-code sync) need a
+// durable offline Admin token. The reliable way to (re)mint one is a token
+// exchange using a still-valid embedded session token (the App Bridge idToken),
+// which the frontend sends on EVERY authenticated API call. Unlike the
+// refresh-token grant, a session token is reusable within its ~1 min life, so
+// this can't thrash single-use refresh tokens. A per-shop in-flight promise
+// dedupes the parallel API calls a single app open fires.
+
+const provisionInFlight = new Map();
+
+// (Re)provision when there's no usable offline token: none stored, no refresh
+// token to recover with, or the access token is within this window of expiry.
+const PROVISION_WINDOW_MS = 10 * 60 * 1000;
+
+export async function needsOfflineProvision(shop) {
+  const t = await getShopifyTokenSet(shop);
+  if (!t || !t.accessToken) return true;
+  if (!t.refreshToken) return true; // can't self-refresh without it
+  if (!t.accessTokenExpiresAt) return false;
+  return t.accessTokenExpiresAt.getTime() - Date.now() < PROVISION_WINDOW_MS;
+}
+
+export async function provisionOfflineTokenFromSession(shopify, shop, sessionToken) {
+  if (!shop || !sessionToken) return null;
+  const pending = provisionInFlight.get(shop);
+  if (pending) return pending;
+
+  const p = (async () => {
+    const body = {
+      client_id: process.env.SHOPIFY_API_KEY,
+      client_secret: process.env.SHOPIFY_API_SECRET,
+      grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+      subject_token: sessionToken,
+      subject_token_type: "urn:ietf:params:oauth:token-type:id_token",
+      requested_token_type:
+        "urn:shopify:params:oauth:token-type:offline-access-token",
+      expiring: "1",
+    };
+    const res = await fetch(`https://${shop}/admin/oauth/access_token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.access_token) {
+      console.warn(
+        `[MS] offline-token provision failed for ${shop} (status=${res.status})`,
+      );
+      return null;
+    }
+    await persistShopifyTokens(shopify, shop, json);
+    console.log(`[MS] offline token provisioned + persisted for ${shop}`);
+    return json.access_token;
+  })()
+    .catch((err) => {
+      console.error(
+        `[MS] offline-token provision error for ${shop}:`,
+        err?.message || err,
+      );
+      return null;
+    })
+    .finally(() => provisionInFlight.delete(shop));
+
+  provisionInFlight.set(shop, p);
+  return p;
+}

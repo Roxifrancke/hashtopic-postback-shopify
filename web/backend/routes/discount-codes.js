@@ -4,6 +4,7 @@ import {
   getSettings,
   getSettingsByApiKey,
   saveAccessToken,
+  getShopifyTokenSet,
 } from "../db.js";
 import {
   getValidAccessToken,
@@ -296,10 +297,14 @@ export default function discountCodesRouter(shopify) {
       }
     }
 
+    const tokenSet = await getShopifyTokenSet(shop).catch(() => null);
     return res.json({
       shop,
       cached_settings_token: cachedPrefix,
       resolved_token: resolvedPrefix,
+      has_refresh_token: Boolean(tokenSet?.refreshToken),
+      access_expires: tokenSet?.accessTokenExpiresAt || null,
+      refresh_expires: tokenSet?.refreshTokenExpiresAt || null,
       sessions: sessionSummary,
       shop_json_probe: { status: probeStatus, body: probeBody },
     });
