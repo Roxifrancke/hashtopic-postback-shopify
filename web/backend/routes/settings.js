@@ -2,7 +2,6 @@ import { Router } from "express";
 import { randomBytes, timingSafeEqual } from "crypto";
 import { getSettings, saveSettings } from "../db.js";
 import { buildTestPayload, sendPayload } from "../postback-sender.js";
-import { registerWebhooks } from "../services/registerWebhooks.js";
 
 /**
  * Constant-time string comparison to prevent timing attacks.
@@ -98,13 +97,8 @@ export default function settingsRouter(shopify) {
       await saveSettings(shop, body);
       const saved = await getSettings(shop);
 
-      // ✅ Auto-register Shopify webhooks
-      if (saved?.shopify_admin_token) {
-        await registerWebhooks({
-          shop,
-          accessToken: saved.shopify_admin_token,
-        });
-      }
+      // Webhooks are registered declaratively via the app config (see
+      // shopify.app.*.toml), so there is nothing to register here.
 
       return res.json({
         success: true,

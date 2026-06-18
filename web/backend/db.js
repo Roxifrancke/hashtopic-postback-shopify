@@ -44,11 +44,17 @@ async function initDb() {
       attempts         INTEGER NOT NULL DEFAULT 0,
       last_http_code   INTEGER,
       last_error       TEXT,
+      payload          TEXT,
       sent_at          TIMESTAMPTZ,
       next_retry_at    TIMESTAMPTZ,
       created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    -- Added post-launch so failed deliveries can be retried with their exact
+    -- original payload instead of a placeholder. IF NOT EXISTS keeps existing
+    -- deployments upgrading cleanly.
+    ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS payload TEXT;
 
     CREATE INDEX IF NOT EXISTS idx_deliveries_shop ON deliveries(shop);
     CREATE INDEX IF NOT EXISTS idx_deliveries_order ON deliveries(shop, order_id);
@@ -182,6 +188,16 @@ export async function upsertDelivery(shop, orderId, orderName) {
   `, [shop, orderId, orderName || orderId]);
 
   return rows[0];
+}
+
+// Store the exact postback payload we built for a delivery, so the retry
+// worker can resend it byte-for-byte instead of reconstructing a placeholder.
+export async function saveDeliveryPayload(deliveryId, payloadJson) {
+  await ensureReady();
+  await pool.query(
+    `UPDATE deliveries SET payload = $1, updated_at = NOW() WHERE id = $2`,
+    [payloadJson, deliveryId]
+  );
 }
 
 export async function markDeliverySent(deliveryId, httpCode) {

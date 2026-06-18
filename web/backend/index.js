@@ -1,15 +1,26 @@
 import "dotenv/config";
 
-// Force pg to use SSL — the Shopify session-storage library doesn't pass ssl
-// options to its internal pg.Pool, so we rely on the libpq env vars instead.
+// The Shopify PostgreSQL session-storage library builds its own pg Pool and
+// ignores both `ssl` options and the connection string's `sslmode` — it only
+// reads host/user/password/database/port. So the ONLY lever for that pool's TLS
+// is the PGSSLMODE env var, which node-postgres reads. Render's managed Postgres
+// presents a self-signed certificate, so we force PGSSLMODE=no-verify, which
+// node-postgres maps to { rejectUnauthorized: false } scoped to Postgres only.
+// Forcing it (rather than defaulting) means a stale PGSSLMODE in the host env
+// can't break boot.
+//
+// We deliberately do NOT disable TLS verification globally. A previous version
+// set NODE_TLS_REJECT_UNAUTHORIZED="0", which turns off certificate checking for
+// EVERY outbound HTTPS request in the process — customer data sent to the
+// postback URL, all Shopify Admin API calls — exposing them to MITM. Clear it
+// here if it leaked into the env (also remove it from the host env if pinned).
 const dbUrl = process.env.DATABASE_URL || "";
 const isLocal = dbUrl.includes("localhost") || dbUrl.includes("127.0.0.1");
-if (!isLocal && !process.env.PGSSLMODE) {
-  process.env.PGSSLMODE = "require";
-  // Render uses self-signed certs; pg needs this to accept them
-  if (!process.env.NODE_TLS_REJECT_UNAUTHORIZED) {
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-  }
+if (!isLocal) {
+  process.env.PGSSLMODE = "no-verify";
+}
+if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === "0") {
+  delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
 }
 
 import express from "express";
@@ -33,7 +44,6 @@ import { startRetryWorker } from "./retry-worker.js";
 import { pixelScriptRouter } from "./routes/pixel-script.js";
 import discountCodesRouter from "./routes/discount-codes.js";
 import cors from "cors";
-import shopifyWebhooks from "./routes/shopify-webhooks.js";
 import gdprRouter from "./routes/gdpr.js";
 
 const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || "3000", 10);
@@ -63,7 +73,7 @@ const shopify = shopifyApp({
   },
 
   webhooks: {
-    path: "/api/webhooks", // ✅ REQUIRED
+    path: "/api/webhooks",
   },
 
   sessionStorage: new PostgreSQLSessionStorage(process.env.DATABASE_URL),
@@ -71,24 +81,38 @@ const shopify = shopifyApp({
 
 const app = express();
 
-// ✅ ADD THIS FIRST (before everything)
-app.use(cors({
-  origin: "*", // or "https://mystorefront.io"
-  methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "X-Mystorefront-Key"]
-}));
+// Cross-origin policy. The embedded admin UI calls this backend same-origin,
+// and every server-to-server caller (the MyStorefront / Loveable Supabase edge
+// functions) is not subject to CORS at all. So browser cross-origin access is
+// denied by default and only enabled for origins explicitly listed in the
+// ALLOWED_ORIGINS env var (comma-separated, e.g. "https://app.mystorefront.io").
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+app.use(
+  cors({
+    origin: ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS : false,
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Mystorefront-Key",
+      "X-Shopify-Shop",
+    ],
+  })
+);
 
-// ✅ HANDLE PREFLIGHT (CRITICAL)
-app.options("*", (req, res) => {
-  res.set({
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Mystorefront-Key"
-  });
-  return res.sendStatus(200);
-});
-
-app.use(morgan("combined"));
+// Request logging. Use a concise format that omits the query string — it can
+// carry the Shopify id_token (a session JWT) and the shop domain — and skip the
+// health check so the logs aren't flooded by uptime pings.
+morgan.token("cleanurl", (req) => (req.originalUrl || req.url || "").split("?")[0]);
+app.use(
+  morgan(
+    ':remote-addr ":method :cleanurl HTTP/:http-version" :status :res[content-length] - :response-time ms',
+    { skip: (req) => req.path === "/health" }
+  )
+);
 app.use(compression());
 
 app.use(
@@ -99,16 +123,15 @@ app.use(
     xFrameOptions: false,
   })
 );
-// 🔥 CRITICAL: allow Shopify storefront to load and execute scripts
+// Allow the Shopify storefront (a different origin) to load the public pixel
+// script. The /pixel route also sets this per-response; this keeps parity for
+// any other publicly embedded asset.
 app.use((req, res, next) => {
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
   res.setHeader("Cross-Origin-Opener-Policy", "unsafe-none");
-
   next();
 });
-
-app.use("/api/webhooks/shopify", shopifyWebhooks);
 
 // GDPR mandatory webhooks — must be registered BEFORE express.json() so the
 // HMAC verifier sees the raw request body. Required by Shopify for any
@@ -182,12 +205,6 @@ app.get(
         const { saveAccessToken } = await import("./db.js");
         await saveAccessToken(session.shop, session.accessToken);
         console.log(`[MS] Access token saved for ${session.shop}`);
-
-        // Auto-enable the Click ID Capture app embed in the active theme
-        // TEMP DISABLED — causing OAuth 403
-        // enableClickIdEmbed(session.shop, session.accessToken).catch((err) =>
-        //   console.error("[MS] Failed to auto-enable app embed:", err.message)
-        // );
       }
     } catch (err) {
       console.error("[MS] Error saving access token:", err.message);
@@ -197,81 +214,8 @@ app.get(
   shopify.redirectToShopifyOrAppRoot()
 );
 
-/**
- * Programmatically activates the Click ID Capture app embed block in the
- * merchant's currently-active theme by patching config/settings_data.json.
- */
-async function enableClickIdEmbed(shop, accessToken) {
-  const APP_HANDLE = process.env.SHOPIFY_APP_HANDLE || "mystorefront-postback";
-  const BLOCK_HANDLE = "click-id-capture";
-  const API_VERSION = "2025-04";
-  const headers = {
-    "X-Shopify-Access-Token": accessToken,
-    "Content-Type": "application/json",
-  };
-
-  // 1. Find the active (main) theme
-  const themesRes = await fetch(
-    `https://${shop}/admin/api/${API_VERSION}/themes.json`,
-    { headers }
-  );
-  if (!themesRes.ok) throw new Error(`themes fetch failed: ${themesRes.status}`);
-  const { themes } = await themesRes.json();
-  const activeTheme = themes.find((t) => t.role === "main");
-  if (!activeTheme) {
-    console.warn("[MS] No active theme found for", shop);
-    return;
-  }
-
-  // 2. Fetch config/settings_data.json from that theme
-  const assetUrl =
-    `https://${shop}/admin/api/${API_VERSION}/themes/${activeTheme.id}/assets.json` +
-    `?asset[key]=config/settings_data.json`;
-  const assetRes = await fetch(assetUrl, { headers });
-  if (!assetRes.ok) throw new Error(`asset fetch failed: ${assetRes.status}`);
-  const { asset } = await assetRes.json();
-  const settingsData = JSON.parse(asset.value);
-
-  // 3. Check if the embed is already present and enabled
-  const blockType = `shopify://apps/${APP_HANDLE}/blocks/${BLOCK_HANDLE}`;
-  const blocks = settingsData.current.blocks || {};
-  const alreadyEnabled = Object.values(blocks).some(
-    (b) => b.type === blockType && b.disabled !== true
-  );
-  if (alreadyEnabled) {
-    console.log(`[MS] App embed already enabled for ${shop}`);
-    return;
-  }
-
-  // 4. Remove any existing (disabled) entry for this block type, then add fresh
-  for (const key of Object.keys(blocks)) {
-    if (blocks[key].type === blockType) delete blocks[key];
-  }
-  const uuid = crypto.randomUUID();
-  blocks[`${blockType}/${uuid}`] = { type: blockType, disabled: false, settings: {} };
-  settingsData.current.blocks = blocks;
-
-  // 5. Write back
-  const putRes = await fetch(
-    `https://${shop}/admin/api/${API_VERSION}/themes/${activeTheme.id}/assets.json`,
-    {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({
-        asset: { key: "config/settings_data.json", value: JSON.stringify(settingsData) },
-      }),
-    }
-  );
-  if (!putRes.ok) {
-    const body = await putRes.text();
-    throw new Error(`asset PUT failed ${putRes.status}: ${body}`);
-  }
-  console.log(`[MS] App embed enabled in theme "${activeTheme.name}" for ${shop}`);
-}
-
 // Webhook route — HMAC verified before dispatching
 app.post("/api/webhooks", express.text({ type: "*/*" }), async (req, res) => {
-  console.log("🔥 WEBHOOK HIT:", req.headers["x-shopify-topic"]);
   const topic = req.headers["x-shopify-topic"];
   const shop = req.headers["x-shopify-shop-domain"];
   const hmac = req.headers["x-shopify-hmac-sha256"];
@@ -345,55 +289,61 @@ app.get("/api/settings/ping", async (req, res) => {
 // Called by MyStorefront's servers using X-Mystorefront-Key auth (handled inside router).
 app.use("/api/discount-codes", discountCodesRouter(shopify));
 
-// SECURITY: Session middleware — verifies Shopify JWT signature before trusting shop identity
+// SECURITY: Session middleware for merchant-facing routes. Every /api call
+// below this point must carry a valid Shopify session-token JWT (the App Bridge
+// `idToken`). We verify the JWT signature with our API secret and trust ONLY
+// the shop in its verified `dest` claim.
+//
+// There is deliberately NO fallback to a `?shop=` query param or header: that
+// would let anyone read or modify any store's settings just by guessing its
+// myshopify domain. (Server-to-server callers use the key-authenticated
+// /api/settings/ping and /api/discount-codes routes registered above instead.)
 app.use("/api/*", async (req, res, next) => {
   try {
     const authHeader = req.headers["authorization"] || "";
-    const token = authHeader.replace("Bearer ", "");
+    const token = authHeader.startsWith("Bearer ")
+      ? authHeader.slice("Bearer ".length)
+      : "";
+    const parts = token.split(".");
 
-    if (token && token.includes(".")) {
-      const parts = token.split(".");
-      if (parts.length === 3) {
-        const { createHmac, timingSafeEqual: tse } = await import("crypto");
-        const apiSecret = process.env.SHOPIFY_API_SECRET || "";
+    if (token && parts.length === 3) {
+      const { createHmac, timingSafeEqual: tse } = await import("crypto");
+      const apiSecret = process.env.SHOPIFY_API_SECRET || "";
 
-        // Verify JWT signature: HMAC-SHA256 of header.payload
-        const signingInput = parts[0] + "." + parts[1];
-        const expectedSig = createHmac("sha256", apiSecret)
-          .update(signingInput)
-          .digest("base64url");
+      // Verify JWT signature: HMAC-SHA256 of header.payload
+      const signingInput = parts[0] + "." + parts[1];
+      const expectedSig = createHmac("sha256", apiSecret)
+        .update(signingInput)
+        .digest("base64url");
 
-        let sigValid = false;
-        try {
-          sigValid = tse(
-            Buffer.from(expectedSig),
-            Buffer.from(parts[2])
-          );
-        } catch { sigValid = false; }
+      let sigValid = false;
+      try {
+        sigValid = tse(Buffer.from(expectedSig), Buffer.from(parts[2]));
+      } catch {
+        sigValid = false;
+      }
 
-        if (sigValid) {
-          const payload = JSON.parse(Buffer.from(parts[1], "base64").toString());
-          const dest = payload.dest || "";
-          const shop = dest.replace("https://", "");
-          if (shop && shop.includes(".myshopify.com")) {
-            res.locals.shopify = { session: { shop } };
-            return next();
-          }
+      if (sigValid) {
+        const payload = JSON.parse(Buffer.from(parts[1], "base64").toString());
+        // Reject expired tokens (30s leeway for clock skew). Shopify session
+        // tokens live ~1 min and the frontend fetches a fresh one per request,
+        // so a legitimate caller always presents an unexpired token.
+        const now = Math.floor(Date.now() / 1000);
+        const notExpired =
+          typeof payload.exp !== "number" || payload.exp > now - 30;
+        const dest = payload.dest || "";
+        const shop = dest.replace("https://", "");
+        if (notExpired && shop && shop.includes(".myshopify.com")) {
+          res.locals.shopify = { session: { shop } };
+          return next();
         }
       }
     }
-  } catch (e) {
-    // Fall through to header/query fallback
+  } catch {
+    // fall through to 401
   }
 
-  // Fallback: header or query param (only for internal/trusted calls)
-  const shop = req.headers["x-shopify-shop"] || req.query.shop;
-  if (shop && String(shop).includes(".myshopify.com")) {
-    res.locals.shopify = { session: { shop: String(shop) } };
-    return next();
-  }
-
-  res.status(403).json({ error: "No shop identified" });
+  return res.status(401).json({ error: "Unauthorized" });
 });
 
 // Routes protected by Shopify JWT session middleware (merchant-facing)

@@ -15,13 +15,14 @@ to the purposes described below.
 ## What data we process
 
 When a Shopify order is paid or updated, Shopify sends us a webhook. We only
-process orders that contain a `click_id` note attribute (orders driven by an
-affiliate click). For those orders we read:
+process orders that carry a MyStorefront `click_id` — set as a line-item
+property or order note attribute when the shopper arrived via an affiliate
+link. For those orders we read:
 
 - Order ID, order number, financial status
 - Order total, currency, shipping total, tax total, discount total
 - Line-item count
-- `click_id` note attribute value
+- `click_id` value (line-item property or note attribute)
 - Customer email (if present on the order)
 - Customer phone (if present on the order)
 - Shop domain

@@ -29,22 +29,32 @@ pixelScriptRouter.get(["/capture.js", "/:shop/capture.js"], async (req, res) => 
 
   const script = generateCaptureScript(paramNames, cookieName, cookieDays);
 
-res.set({
-  "Content-Type": "application/javascript; charset=utf-8",
-  "Cache-Control": "public, max-age=300",
-
-  // 🔥 CRITICAL FIX
-  "Access-Control-Allow-Origin": "*",
-  "Cross-Origin-Resource-Policy": "cross-origin",
-  "Cross-Origin-Embedder-Policy": "unsafe-none",
-  "Cross-Origin-Opener-Policy": "unsafe-none"
-});
+  res.set({
+    "Content-Type": "application/javascript; charset=utf-8",
+    "Cache-Control": "public, max-age=300",
+    // The storefront loads this script from a different origin, so it must be
+    // fetchable cross-origin.
+    "Access-Control-Allow-Origin": "*",
+    "Cross-Origin-Resource-Policy": "cross-origin",
+    "Cross-Origin-Embedder-Policy": "unsafe-none",
+    "Cross-Origin-Opener-Policy": "unsafe-none",
+  });
   res.send(script);
 });
 
 function generateCaptureScript(paramNames, cookieName, cookieDays) {
   return `
-/* MyStorefront Postback — Click ID Capture v1.4.0
+/* MyStorefront Postback — Click ID Capture v1.5.0
+ *
+ * v1.5 changes:
+ *   - Respect an explicit "do not track" decision via Shopify's Customer
+ *     Privacy API (proceeds when the API is absent or the shopper is undecided).
+ *   - Write the cart attribute at most once per session (was: every page load)
+ *     so themes that re-render the cart drawer don't flash/reopen it.
+ *   - Attribution window now follows the merchant's configured cookie_days
+ *     instead of a hard-coded 7 days.
+ *   - MutationObserver reuses the resolved click_id instead of re-reading
+ *     storage on every DOM mutation.
  *
  * v1.4 changes:
  *   - Rename storefront-set names to be MyStorefront-branded in admin:
@@ -70,7 +80,7 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
   var COOKIE_DAYS = ${cookieDays};
   var STORAGE_KEY = 'mystorefront_click_id';
   var STORAGE_TS_KEY = 'mystorefront_click_id_ts';
-  var EXPIRY_DAYS = 7;
+  var EXPIRY_DAYS = COOKIE_DAYS; // attribution window follows merchant config
   // Line item property: leading underscore hides from cart/checkout/customer
   // emails (Shopify convention). Admin still shows it under each line item.
   var LINE_ITEM_PROP_NAME = '_MyStorefront click_id';
@@ -79,6 +89,24 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
   // are not rendered in cart/checkout by default. Admin shows it under
   // "Additional details".
   var CART_ATTR_NAME = 'MyStorefront click_id';
+  // sessionStorage flag so the cart attribute is written at most once per
+  // session instead of on every page load (repeated /cart/update.js writes
+  // make some themes re-render or flash the cart drawer as the shopper browses).
+  var CART_WRITE_FLAG = 'mystorefront_cart_written';
+
+  // ── Consent ──────────────────────────────────────────────────────────────
+  // Respect an explicit decline via Shopify's Customer Privacy API. When the
+  // API is absent or the shopper hasn't decided we proceed — the click_id is
+  // first-party data for an affiliate visit the shopper initiated.
+  function trackingAllowed() {
+    try {
+      var cp = window.Shopify && window.Shopify.customerPrivacy;
+      if (cp && typeof cp.getTrackingConsent === 'function') {
+        return cp.getTrackingConsent() !== 'no';
+      }
+    } catch (e) {}
+    return true;
+  }
 
   // ── Read sources ─────────────────────────────────────────────────────────
 
@@ -163,6 +191,12 @@ function getStoredClickId() {
    */
   function writeToCart(clickId) {
     try {
+      var ss = null;
+      try { ss = window.sessionStorage; } catch (e) {}
+      // Skip if we've already written this click_id to the cart this session.
+      if (ss) {
+        try { if (ss.getItem(CART_WRITE_FLAG) === clickId) return; } catch (e) {}
+      }
       var attrs = {};
       attrs[CART_ATTR_NAME] = clickId;
       fetch('/cart/update.js', {
@@ -170,6 +204,9 @@ function getStoredClickId() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ attributes: attrs })
       }).catch(function() {});
+      if (ss) {
+        try { ss.setItem(CART_WRITE_FLAG, clickId); } catch (e) {}
+      }
     } catch(e) {}
   }
 
@@ -227,13 +264,10 @@ function getStoredClickId() {
    * modals, drawer carts that re-render product cards, etc.) and inject
    * into them as they appear.
    */
-  function startMutationObserver() {
-    if (typeof MutationObserver === 'undefined') return;
+  function startMutationObserver(clickId) {
+    if (typeof MutationObserver === 'undefined' || !clickId) return;
 
     var observer = new MutationObserver(function(mutations) {
-      var clickId = getStoredClickId();
-      if (!clickId) return;
-
       for (var i = 0; i < mutations.length; i++) {
         var added = mutations[i].addedNodes;
         if (!added || !added.length) continue;
@@ -263,31 +297,28 @@ function getStoredClickId() {
   // ── Main flow ────────────────────────────────────────────────────────────
 
   function run() {
+    // Respect an explicit "do not track" decision before touching storage.
+    if (!trackingAllowed()) return;
+
     // 1. URL → persist everywhere (URL always wins over stored value).
     var fromUrl = getUrlParam(PARAM_NAMES);
-    var clickId = fromUrl;
+    var clickId = fromUrl || getStoredClickId();
 
     if (fromUrl) {
       setCookie(COOKIE_NAME, fromUrl, COOKIE_DAYS);
       setLocalStorage(fromUrl);
-      writeToCart(fromUrl); // backward-compat fallback
-    } else {
-      // 2. No URL param — fall back to whatever we already have stored.
-      clickId = getStoredClickId();
-      if (clickId) {
-        // Mirror across stores so a localStorage-only or cookie-only state
-        // gets healed back into both.
-        setLocalStorage(clickId);
-        setCookie(COOKIE_NAME, clickId, COOKIE_DAYS);
-        writeToCart(clickId); // backward-compat fallback
-      }
+    } else if (clickId) {
+      // Heal a localStorage-only or cookie-only state back into both.
+      setLocalStorage(clickId);
+      setCookie(COOKIE_NAME, clickId, COOKIE_DAYS);
     }
 
-    // 3. Primary attribution channel: inject into every product form on the
-    //    page right now, then watch for new ones. Safe even if clickId is
-    //    falsy — both helpers no-op in that case.
-    injectIntoAllForms(clickId);
-    startMutationObserver();
+    // Nothing to attribute → no cart write, no form injection, no observer.
+    if (!clickId) return;
+
+    writeToCart(clickId);          // backward-compat fallback (once per session)
+    injectIntoAllForms(clickId);   // primary attribution channel
+    startMutationObserver(clickId);
   }
 
   if (document.readyState === 'loading') {
@@ -295,6 +326,11 @@ function getStoredClickId() {
   } else {
     run();
   }
+
+  // Re-run if the shopper grants consent after the initial load.
+  try {
+    document.addEventListener('visitorConsentCollected', function () { run(); });
+  } catch (e) {}
 })();
 `.trim();
 }

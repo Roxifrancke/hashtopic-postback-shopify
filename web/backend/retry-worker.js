@@ -1,14 +1,12 @@
 import cron from "node-cron";
 import {
   getPendingRetries,
-  getDeliveryById,
   markDeliverySent,
   markDeliveryFailed,
   purgeOldDeliveries,
+  getSettings,
 } from "./db.js";
-import { getSettings } from "./db.js";
 import { sendPayload, nextRetryAt, MAX_ATTEMPTS } from "./postback-sender.js";
-import webhookHandlers from "./webhooks/index.js";
 
 export function startRetryWorker() {
   // Run every minute to check for pending retries
@@ -44,7 +42,31 @@ async function retryDelivery(delivery) {
   const settings = await getSettings(delivery.shop);
   if (!settings?.webhook_url) return;
 
-  const payload = buildRetryPayload(delivery, settings);
+  // Resend the exact payload we built on the first attempt. Delivery rows
+  // created before payloads were persisted can't be faithfully retried, so we
+  // fail them rather than send a meaningless placeholder (which the upstream
+  // would reject for having no click_id anyway).
+  if (!delivery.payload) {
+    await markDeliveryFailed(
+      delivery.id,
+      0,
+      "No stored payload to retry (legacy delivery row)",
+      null
+    );
+    console.error(
+      `[MS Retry] Delivery ${delivery.id} has no stored payload — marked failed.`
+    );
+    return;
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(delivery.payload);
+  } catch {
+    await markDeliveryFailed(delivery.id, 0, "Corrupt stored payload", null);
+    return;
+  }
+
   const result = await sendPayload(payload, settings);
 
   if (result.success) {
@@ -56,33 +78,9 @@ async function retryDelivery(delivery) {
     await markDeliveryFailed(delivery.id, result.httpCode, result.error, retryAt);
 
     if (!retryAt) {
-      console.error(`[MS Retry] Delivery ${delivery.id} failed permanently after ${attempt} attempts.`);
+      console.error(
+        `[MS Retry] Delivery ${delivery.id} failed permanently after ${attempt} attempts.`
+      );
     }
   }
-}
-
-function buildRetryPayload(delivery, settings) {
-  return {
-    click_id: null,
-    order_id: delivery.order_id,
-    order_total: 0,
-    currency: "USD",
-    test: Boolean(settings.test_mode),
-    metadata: {
-      event: "purchase",
-      event_time: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
-      order_number: delivery.order_name || delivery.order_id,
-      order_status: "paid",
-      shipping_total: 0,
-      tax_total: 0,
-      discount_total: 0,
-      items_count: 0,
-      customer: { email: null, phone: null },
-      store: {
-        platform: "shopify",
-        site_url: `https://${delivery.shop}`,
-      },
-      _retry: true,
-    },
-  };
 }

@@ -1,6 +1,7 @@
 import {
   getSettings,
   upsertDelivery,
+  saveDeliveryPayload,
   markDeliverySent,
   markDeliveryFailed,
   getDeliveriesForShop,
@@ -59,6 +60,8 @@ async function processOrder(shop, order) {
   }
 
   const payload = buildPayload(shop, order, settings);
+  // Persist the exact payload so the retry worker can faithfully resend it.
+  await saveDeliveryPayload(delivery.id, JSON.stringify(payload));
   const result = await sendPayload(payload, settings);
 
   if (result.success) {
@@ -163,6 +166,8 @@ async function processRefund(shop, refund) {
   }
 
   const payload = buildRefundPayload(shop, order, refund, settings);
+  // Persist the exact payload so the retry worker can faithfully resend it.
+  await saveDeliveryPayload(delivery.id, JSON.stringify(payload));
   const result = await sendPayload(payload, settings);
 
   if (result.success) {

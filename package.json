@@ -8,7 +8,7 @@
     "generate": "shopify app generate",
     "info": "shopify app info",
     "shopify": "shopify",
-    "docker-start": "/usr/bin/node backend/index.js"
+    "docker-start": "/usr/bin/node web/backend/index.js"
   },
   "workspaces": [
     "web"

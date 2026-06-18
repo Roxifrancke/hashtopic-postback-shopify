@@ -41,6 +41,7 @@
       // backend extractor finds it.
       var LINE_ITEM_PROP = '_MyStorefront click_id';
       var CART_ATTR_NAME = 'MyStorefront click_id';
+      var CART_WRITE_FLAG = 'mystorefront_cart_written';
 
       function getUrlParam() {
         try {
@@ -115,6 +116,12 @@
 
       function writeToCart(clickId) {
         try {
+          var ss = null;
+          try { ss = window.sessionStorage; } catch (e) {}
+          // Write the cart attribute at most once per session.
+          if (ss) {
+            try { if (ss.getItem(CART_WRITE_FLAG) === clickId) return; } catch (e) {}
+          }
           var attrs = {};
           attrs[CART_ATTR_NAME] = clickId;
           fetch('/cart/update.js', {
@@ -122,6 +129,9 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ attributes: attrs })
           }).catch(function() {});
+          if (ss) {
+            try { ss.setItem(CART_WRITE_FLAG, clickId); } catch (e) {}
+          }
         } catch(e) {}
       }
 
