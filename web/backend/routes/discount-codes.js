@@ -468,9 +468,16 @@ export default function discountCodesRouter(shopify) {
             : DEACTIVATE_ENDS_AT;
         if (!resolvedEndsAt) resolvedEndsAt = DEACTIVATE_ENDS_AT;
       } else if (activeExplicit === true) {
-        // Activate — clear end date (or use future expiry_date) and
-        // reset starts_at to "now" so the rule is immediately usable.
-        resolvedEndsAt = expiry_date ? new Date(expiry_date).toISOString() : null;
+        // Activate — clear the end date (or use a FUTURE expiry_date) and reset
+        // starts_at to "now" so the rule is immediately usable. A PAST
+        // expiry_date must be ignored: deactivation ends the rule with a
+        // historic ends_at (2000-01-01), which the live import then stores back
+        // as the row's expiry_date. On reactivation that stale past date would
+        // be sent here and instantly re-expire the rule — making reactivation
+        // appear to do nothing. So only honour an expiry that's in the future.
+        const expDate = expiry_date ? new Date(expiry_date) : null;
+        resolvedEndsAt =
+          expDate && expDate.getTime() > Date.now() ? expDate.toISOString() : null;
         resolvedStartsAt = new Date().toISOString();
       } else if (expiry_date !== undefined) {
         resolvedEndsAt = expiry_date ? new Date(expiry_date).toISOString() : null;
