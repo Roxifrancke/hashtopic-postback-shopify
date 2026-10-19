@@ -53,8 +53,8 @@ import gdprRouter from "./routes/gdpr.js";
 const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || "3000", 10);
 const STATIC_PATH =
   process.env.NODE_ENV === "production"
-    ? `${process.cwd()}/web/frontend/dist`
-    : `${process.cwd()}/web/frontend/`;
+    ? `${process.cwd()}/frontend/dist`
+    : `${process.cwd()}/frontend/`;
 
 const HOST_NAME = (process.env.SHOPIFY_APP_URL || "").replace(/^https?:\/\//, "");
 
