@@ -68,9 +68,9 @@ const shopify = shopifyApp({
       // classic OAuth flow was producing — the only way to get a usable
       // Admin API token for an embedded app is via token exchange.
       unstable_newEmbeddedAuthStrategy: true,
-    },
+        },
+    hostName: HOST_NAME,
   },
-  hostName: HOST_NAME,
   auth: {
     path: "/api/auth",
     callbackPath: "/api/auth/callback",
