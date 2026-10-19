@@ -300,7 +300,7 @@ test("attribution chain — first matching note_attribute wins on duplicates", (
   assert.equal(payload.click_id, "first_click");
 });
 
-// ── v1.3: line-item-properties is the primary source ───────────────────────
+// ── Order-level attribution with line-item fallback ──────────────────────
 //
 // In v1.3 the storefront capture script injects a hidden
 // `<input name="properties[click_id]">` into product forms, so click_id
@@ -310,12 +310,13 @@ test("attribution chain — first matching note_attribute wins on duplicates", (
 // attribute set.
 //
 // The extractor must:
-//   1. prefer line_items[].properties.click_id over note_attributes
-//   2. fall back to note_attributes if no line item property is set
+//   1. prefer order note_attributes for an order-wide referral
+//   2. fall back to line_items[].properties in accelerated checkout
 //   3. return null safely when neither source has a click_id
 //   4. handle multiple line items (first non-empty wins)
+// This deterministic fallback does NOT prove which competing click was latest.
 
-test("extractClickId — line item property (array form) is primary source", () => {
+test("extractClickId — order-level cart referral takes precedence over line item", () => {
   const order = makeOrder({
     note_attributes: [{ name: "MyStorefront click_id", value: "from_cart_attribute" }],
     line_items: [
@@ -331,8 +332,8 @@ test("extractClickId — line item property (array form) is primary source", () 
       },
     ],
   });
-  // Line item beats note_attribute when both are present.
-  assert.equal(extractClickId(order), "from_line_item");
+  // The order-wide referral wins; no timestamp is available for last-click selection.
+  assert.equal(extractClickId(order), "from_cart_attribute");
 });
 
 test("extractClickId — line item property (object form) is also recognised", () => {
@@ -470,9 +471,9 @@ test("extractClickId — handles missing line_items array", () => {
   assert.equal(extractClickId(order), "from_notes");
 });
 
-// ── v1.3: integration — buildPayload uses the new priority ─────────────────
+// ── Integration: buildPayload uses order-level referral precedence ────────
 
-test("buildPayload — v1.3: line item properties take priority over note_attributes", () => {
+test("buildPayload — order-level referral takes priority without click timestamps", () => {
   const order = makeOrder({
     note_attributes: [{ name: "MyStorefront click_id", value: "old_cart_attribute" }],
     line_items: [
@@ -489,7 +490,7 @@ test("buildPayload — v1.3: line item properties take priority over note_attrib
     ],
   });
   const payload = buildPayload("shop.myshopify.com", order, {});
-  assert.equal(payload.click_id, "new_line_item_click");
+  assert.equal(payload.click_id, "old_cart_attribute");
 });
 
 test("buildPayload — v1.3: simulates Buy It Now flow (line item only, no cart attr)", () => {

@@ -24,23 +24,28 @@ const NOTE_ATTR_NAMES = [
 ];
 
 /**
- * Extract click_id from a Shopify order, checking sources in priority order.
+ * Resolve the referral from an order-level cart attribute first, falling back
+ * to a line-item property for accelerated checkouts without cart attributes.
  *
- * Priority:
- *   1. line_items[].properties — primary, set via product form hidden input.
- *      Survives Buy It Now / Shop Pay / fast checkout where cart attributes
- *      may not be set. Tries each known property name (current + legacy).
- *   2. note_attributes — cart attribute path, retained as backward-compat
- *      fallback for stores on the older flow.
- *   3. null — not an affiliate order.
- *
- * Returns the trimmed string value, or null. Empty strings are treated as null
- * so a stale empty property doesn't suppress the note_attributes fallback.
+ * IMPORTANT: The source of a click ID is NOT a timestamp. If the cart and
+ * line-item values differ, this deterministic fallback does not establish
+ * last-click attribution. That requires validating the click IDs and their
+ * timestamps in the attribution backend. Do not infer recency from their names.
  */
 export function extractClickId(order) {
   if (!order) return null;
 
-  // 1. Primary: line item properties. First non-empty wins.
+  // 1. Prefer cart/order attribution for the whole order.
+  const noteAttrs = order.note_attributes;
+  if (Array.isArray(noteAttrs)) {
+    for (const attrName of NOTE_ATTR_NAMES) {
+      const hit = noteAttrs.find((a) => a?.name === attrName);
+      const value = hit?.value;
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+  }
+
+  // 2. Fall back to line item properties for accelerated checkout.
   const lineItems = order.line_items || [];
   for (const item of lineItems) {
     const props = item?.properties;
@@ -60,16 +65,6 @@ export function extractClickId(order) {
         const value = props[propName];
         if (typeof value === "string" && value.trim()) return value.trim();
       }
-    }
-  }
-
-  // 2. Fallback: note_attributes (cart attribute path).
-  const noteAttrs = order.note_attributes;
-  if (Array.isArray(noteAttrs)) {
-    for (const attrName of NOTE_ATTR_NAMES) {
-      const hit = noteAttrs.find((a) => a?.name === attrName);
-      const value = hit?.value;
-      if (typeof value === "string" && value.trim()) return value.trim();
     }
   }
 

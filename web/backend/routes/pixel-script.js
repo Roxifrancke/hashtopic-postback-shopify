@@ -128,11 +128,11 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
     } catch(e) { return null; }
   }
 
-function setLocalStorage(value) {
+function setLocalStorage(value, timestamp) {
   try {
     if (window.localStorage) {
       window.localStorage.setItem(STORAGE_KEY, value);
-      window.localStorage.setItem(STORAGE_TS_KEY, Date.now().toString());
+      window.localStorage.setItem(STORAGE_TS_KEY, String(timestamp));
     }
   } catch(e) {}
 }
@@ -168,7 +168,7 @@ function getStoredClickId() {
       var age = Date.now() - parseInt(ts, 10);
       var maxAge = EXPIRY_DAYS * 24 * 60 * 60 * 1000;
 
-      if (age > maxAge) {
+      if (!Number.isFinite(age) || age < -60000 || age >= maxAge) {
         // expired → clear
         window.localStorage.removeItem(STORAGE_KEY);
         window.localStorage.removeItem(STORAGE_TS_KEY);
@@ -178,7 +178,9 @@ function getStoredClickId() {
     }
   } catch(e) {}
 
-  return getLocalStorage() || getCookie(COOKIE_NAME);
+  // An old cookie without a timestamp cannot establish a reliable 30-day window.
+  // Newly recorded referrals always contain a timestamp.
+  return ts ? (getLocalStorage() || getCookie(COOKIE_NAME)) : null;
 }
 
   // ── Cart attribute write (backward-compatible fallback) ──────────────────
@@ -303,14 +305,18 @@ function getStoredClickId() {
     // 1. URL → persist everywhere (URL always wins over stored value).
     var fromUrl = getUrlParam(PARAM_NAMES);
     var clickId = fromUrl || getStoredClickId();
+    var timestamp = fromUrl ? Date.now() : Number((function() {
+      try { return window.localStorage.getItem(STORAGE_TS_KEY); } catch(e) { return null; }
+    })());
 
     if (fromUrl) {
       setCookie(COOKIE_NAME, fromUrl, COOKIE_DAYS);
-      setLocalStorage(fromUrl);
+      setLocalStorage(fromUrl, timestamp);
     } else if (clickId) {
       // Heal a localStorage-only or cookie-only state back into both.
-      setLocalStorage(clickId);
-      setCookie(COOKIE_NAME, clickId, COOKIE_DAYS);
+      var remaining = Math.max(0, COOKIE_DAYS - (Date.now() - timestamp) / 864e5);
+      setLocalStorage(clickId, timestamp);
+      setCookie(COOKIE_NAME, clickId, remaining);
     }
 
     // Nothing to attribute → no cart write, no form injection, no observer.
