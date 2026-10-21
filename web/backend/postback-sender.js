@@ -102,7 +102,8 @@ export function buildPayload(shop, order, settings) {
 return {
   click_id: clickId || null,
   order_id: String(order.id),
-  order_total: commissionableSubtotal,
+  order_total: parseFloat(order.total_price || 0),
+  eligible_product_subtotal: commissionableSubtotal,
   currency: order.currency || "USD",
   test: Boolean(settings?.test_mode),
   metadata: {
