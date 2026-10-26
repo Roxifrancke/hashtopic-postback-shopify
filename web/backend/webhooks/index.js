@@ -1,6 +1,7 @@
 import {
   getSettings,
   upsertDelivery,
+  claimDelivery,
   saveDeliveryPayload,
   markDeliverySent,
   markDeliveryFailed,
@@ -58,6 +59,9 @@ async function processOrder(shop, order) {
     console.log(`[MS] Order ${order.id} max attempts reached for ${shop}.`);
     return;
   }
+
+  const claimed = await claimDelivery(delivery.id, MAX_RETRY);
+  if (!claimed) return;
 
   const payload = buildPayload(shop, order, settings);
   // Persist the exact payload so the retry worker can faithfully resend it.
@@ -164,6 +168,9 @@ async function processRefund(shop, refund) {
     console.log(`[MS] Refund ${refund.id} max attempts reached for ${shop}.`);
     return;
   }
+
+  const claimed = await claimDelivery(delivery.id, MAX_RETRY);
+  if (!claimed) return;
 
   const payload = buildRefundPayload(shop, order, refund, settings);
   // Persist the exact payload so the retry worker can faithfully resend it.
