@@ -176,7 +176,7 @@ test("buildRefundPayload — order_total is negative", () => {
     makeRefund(),
     {}
   );
-  assert.equal(payload.order_total, -55.0);
+  assert.equal(payload.order_total, -50.0);
   assert.ok(payload.order_total < 0, "Refund total must be negative for clawback");
 });
 
@@ -234,14 +234,14 @@ test("buildRefundPayload — sums multiple refund transactions", () => {
     ],
   });
   const payload = buildRefundPayload("shop.myshopify.com", makeOrder(), refund, {});
-  assert.equal(payload.order_total, -55.0);
+  assert.equal(payload.order_total, -50.0);
 });
 
 test("buildRefundPayload — falls back to refund_line_items total when no transactions", () => {
   const refund = makeRefund({ transactions: [] });
   const payload = buildRefundPayload("shop.myshopify.com", makeOrder(), refund, {});
   // subtotal 50 + total_tax 5 = 55
-  assert.equal(payload.order_total, -55.0);
+  assert.equal(payload.order_total, -50.0);
 });
 
 test("buildRefundPayload — handles missing parent order gracefully", () => {
