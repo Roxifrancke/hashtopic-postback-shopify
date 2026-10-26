@@ -286,9 +286,9 @@ export async function getDeliveryById(id) {
 export async function getPendingRetries() {
   await ensureReady();
   const { rows } = await pool.query(
-    "SELECT * FROM deliveries WHERE (status = 'pending_retry' AND next_retry_at <= NOW())
+    `SELECT * FROM deliveries WHERE (status = 'pending_retry' AND next_retry_at <= NOW())
         OR (status = 'processing' AND updated_at < NOW() - INTERVAL '2 minutes')
-     LIMIT 100"
+     LIMIT 100`
   );
   return rows;
 }
