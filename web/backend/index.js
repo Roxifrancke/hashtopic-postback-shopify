@@ -497,3 +497,45 @@ app.listen(PORT, () => {
 });
 
 export default shopify;
+
+
+// TEMPORARY STAGING ORDER AUTH DIAGNOSTIC
+// Read-only. Enabled only with MS_ORDER_DIAGNOSTIC=1.
+if (process.env.MS_ORDER_DIAGNOSTIC === "1") {
+  (async () => {
+    const shop = "mystorefront-test.myshopify.com";
+    const orderId = "7254761930817";
+
+    try {
+      const { getValidAccessToken } = await import("./shopify-auth.js");
+      const token = await getValidAccessToken(shopify, shop);
+
+      if (!token) {
+        console.log("[MS DIAGNOSTIC] No valid Shopify access token");
+        return;
+      }
+
+      const url = `https://${shop}/admin/api/2025-04/orders/${orderId}.json`;
+      const response = await fetch(url, {
+        headers: {
+          "X-Shopify-Access-Token": token,
+          Accept: "application/json"
+        },
+        signal: AbortSignal.timeout(15000)
+      });
+
+      console.log(`[MS DIAGNOSTIC] Order lookup HTTP ${response.status}`);
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log(
+          `[MS DIAGNOSTIC] Order found: ${data.order?.id === Number(orderId)}`
+        );
+      }
+    } catch (error) {
+      console.log(
+        `[MS DIAGNOSTIC] Error: ${error.name || "Unknown"}`
+      );
+    }
+  })();
+}
