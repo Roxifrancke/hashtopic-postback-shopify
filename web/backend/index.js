@@ -250,7 +250,7 @@ app.post("/api/webhooks", express.text({ type: "*/*" }), async (req, res) => {
     } else if (topic === "orders/updated") {
       await webhookHandlers.ordersUpdated(topic, shop, req.body);
     } else if (topic === "refunds/create") {
-      await webhookHandlers.refundsCreate(topic, shop, req.body);
+      await webhookHandlers.refundsCreate(topic, shop, req.body, undefined, shopify);
     }
     res.status(200).send("OK");
   } catch (err) {
@@ -450,18 +450,8 @@ async function tokenExchangeMiddleware(req, res, next) {
       },
     );
     const tokJson = await tokRes.json().catch(() => ({}));
-    const safeLog = {
-      ...tokJson,
-      access_token: tokJson.access_token
-        ? `${String(tokJson.access_token).slice(0, 8)}…`
-        : undefined,
-      refresh_token: tokJson.refresh_token
-        ? `${String(tokJson.refresh_token).slice(0, 8)}…`
-        : undefined,
-    };
     console.log(
-      `[MS] token-exchange raw response (status=${tokRes.status}):`,
-      JSON.stringify(safeLog),
+      `[MS] Token exchange response received (status=${tokRes.status}, has_access_token=${Boolean(tokJson.access_token)}, has_refresh_token=${Boolean(tokJson.refresh_token)})`
     );
 
     if (!tokRes.ok || !tokJson.access_token) {

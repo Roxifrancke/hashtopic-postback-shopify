@@ -1,3 +1,4 @@
+import { getValidAccessToken } from "../shopify-auth.js";
 import {
   getSettings,
   upsertDelivery,
@@ -109,9 +110,9 @@ const ordersUpdated = async (topic, shop, body, webhookId) => {
  * Returns null on any failure — the caller falls back to a payload
  * built without click_id / customer info.
  */
-async function fetchOrder(shop, orderId) {
+async function fetchOrder(shop, orderId, shopify) {
   try {
-    const accessToken = await getAccessToken(shop);
+    const accessToken = await getValidAccessToken(shopify, shop);
     if (!accessToken) {
       console.warn(`[MS] No admin token for ${shop} — cannot fetch order ${orderId} for refund`);
       return null;
@@ -136,15 +137,15 @@ async function fetchOrder(shop, orderId) {
   }
 }
 
-async function processRefund(shop, refund) {
+async function processRefund(shop, refund, shopify) {
   const settings = await getSettings(shop);
   if (!settings?.webhook_url) {
-    console.log(`[MS] No webhook URL configured for ${shop}, skipping refund.`);
-    return;
+    throw new Error(`Refund cannot be processed: webhook URL not configured for ${shop}`);
   }
 
   // Fetch parent order to pull click_id (line item property or note attribute).
-  const order = await fetchOrder(shop, refund.order_id);
+  const order = await fetchOrder(shop, refund.order_id, shopify);
+  if (!order) throw new Error(`Refund parent order lookup failed for ${shop}/${refund.order_id}`);
 
   // No click_id → not an affiliate order, no commission to claw back.
   const clickId = extractClickId(order);
@@ -188,12 +189,13 @@ async function processRefund(shop, refund) {
   }
 }
 
-const refundsCreate = async (topic, shop, body, webhookId) => {
+const refundsCreate = async (topic, shop, body, webhookId, shopify) => {
   try {
     const refund = JSON.parse(body);
-    await processRefund(shop, refund);
+    await processRefund(shop, refund, shopify);
   } catch (err) {
     console.error("[MS] Error in refunds/create handler:", err);
+    throw err;
   }
 };
 
