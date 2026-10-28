@@ -275,6 +275,7 @@ test("capture script — persists URL click_id to localStorage", () => {
 test("capture script — uses localStorage when URL param absent", () => {
   const env = makeBrowserEnv({ url: "https://shop.example.com/products/x" });
   env.window.localStorage.setItem("mystorefront_click_id", "from_storage");
+  env.window.localStorage.setItem("mystorefront_click_id_ts", String(Date.now()));
   const form = makeProductForm(env.document);
 
   runCaptureScript(env);
@@ -282,6 +283,23 @@ test("capture script — uses localStorage when URL param absent", () => {
   const input = form.querySelector('input[name="properties[_MyStorefront click_id]"]');
   assert.ok(input, "input should be injected from localStorage value");
   assert.equal(input.value, "from_storage");
+});
+
+test("capture script — ignores stored click without a referral timestamp", () => {
+  const env = makeBrowserEnv({ url: "https://shop.example.com/products/x" });
+  env.window.localStorage.setItem("mystorefront_click_id", "unverified_legacy_click");
+  const form = makeProductForm(env.document);
+  runCaptureScript(env);
+  assert.equal(form.querySelector('input[name="properties[_MyStorefront click_id]"]'), null);
+});
+
+test("capture script — ignores stored click after 30 days", () => {
+  const env = makeBrowserEnv({ url: "https://shop.example.com/products/x" });
+  env.window.localStorage.setItem("mystorefront_click_id", "expired_click");
+  env.window.localStorage.setItem("mystorefront_click_id_ts", String(Date.now() - 31 * 864e5));
+  const form = makeProductForm(env.document);
+  runCaptureScript(env);
+  assert.equal(form.querySelector('input[name="properties[_MyStorefront click_id]"]'), null);
 });
 
 test("capture script — does nothing when no URL param and no stored click_id", () => {

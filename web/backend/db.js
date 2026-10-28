@@ -175,19 +175,56 @@ export async function saveSettings(shop, data) {
 
 export async function upsertDelivery(shop, orderId, orderName) {
   await ensureReady();
-  const { rows: existing } = await pool.query(
-    "SELECT * FROM deliveries WHERE shop = $1 AND order_id = $2",
-    [shop, orderId]
-  );
-  if (existing.length > 0) return existing[0];
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+      [shop + ":" + orderId]
+    );
+    const { rows: existing } = await client.query(
+      "SELECT * FROM deliveries WHERE shop = $1 AND order_id = $2",
+      [shop, orderId]
+    );
+    if (existing.length) {
+      await client.query("COMMIT");
+      return existing[0];
+    }
+    const { rows } = await client.query(
+      `INSERT INTO deliveries (shop, order_id, order_name, status)
+       VALUES ($1, $2, $3, 'pending') RETURNING *`,
+      [shop, orderId, orderName || orderId]
+    );
+    await client.query("COMMIT");
+    return rows[0];
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
+
+// Claim a delivery atomically before sending its postback.
+// A concurrent webhook or retry cannot claim the same event.
+export async function claimDelivery(deliveryId, maxAttempts = 5) {
+  await ensureReady();
   const { rows } = await pool.query(`
-    INSERT INTO deliveries (shop, order_id, order_name, status)
-    VALUES ($1, $2, $3, 'pending')
+    UPDATE deliveries
+    SET status = 'processing', updated_at = NOW()
+    WHERE id = $1
+      AND attempts < $2
+      AND (
+        status IN ('pending', 'pending_retry')
+        OR (
+          status = 'processing'
+          AND updated_at < NOW() - INTERVAL '2 minutes'
+        )
+      )
     RETURNING *
-  `, [shop, orderId, orderName || orderId]);
-
-  return rows[0];
+  `, [deliveryId, maxAttempts]);
+  return rows[0] || null;
 }
 
 // Store the exact postback payload we built for a delivery, so the retry
@@ -249,7 +286,9 @@ export async function getDeliveryById(id) {
 export async function getPendingRetries() {
   await ensureReady();
   const { rows } = await pool.query(
-    "SELECT * FROM deliveries WHERE status = 'pending_retry' AND next_retry_at <= NOW() LIMIT 100"
+    `SELECT * FROM deliveries WHERE (status = 'pending_retry' AND next_retry_at <= NOW())
+        OR (status = 'processing' AND updated_at < NOW() - INTERVAL '2 minutes')
+     LIMIT 100`
   );
   return rows;
 }

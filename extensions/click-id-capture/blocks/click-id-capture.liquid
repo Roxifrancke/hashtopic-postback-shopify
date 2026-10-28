@@ -35,6 +35,7 @@
     try {
       var COOKIE_NAME = 'click_id';
       var COOKIE_DAYS = 30;
+      var STORAGE_TS_KEY = 'mystorefront_click_id_ts';
       // Underscore prefix hides the line item property from cart/checkout/
       // customer emails. Admin still shows "_MyStorefront click_id" against
       // each line item. Must match the value used in pixel-script.js so the
@@ -49,8 +50,8 @@
         } catch(e) { return null; }
       }
 
-      function setCookie(value) {
-        var expires = new Date(Date.now() + COOKIE_DAYS * 864e5).toUTCString();
+      function setCookie(value, days) {
+        var expires = new Date(Date.now() + days * 864e5).toUTCString();
         var secure = location.protocol === 'https:' ? '; Secure' : '';
         document.cookie =
           COOKIE_NAME + '=' + encodeURIComponent(value) +
@@ -65,8 +66,8 @@
         return match ? decodeURIComponent(match[2]) : null;
       }
 
-      function setLocal(value) {
-        try { window.localStorage.setItem(COOKIE_NAME, value); } catch(e) {}
+      function setLocal(value, ts) {
+        try { window.localStorage.setItem(COOKIE_NAME, value); window.localStorage.setItem(STORAGE_TS_KEY, String(ts)); } catch(e) {}
       }
 
       function getLocal() {
@@ -135,11 +136,14 @@
         } catch(e) {}
       }
 
-      var clickId = getUrlParam() || getCookie() || getLocal();
-      if (!clickId) return;
-
-      setCookie(clickId);
-      setLocal(clickId);
+      var urlId = getUrlParam();
+      var ts = urlId ? Date.now() : Number((function() {
+        try { return window.localStorage.getItem(STORAGE_TS_KEY); } catch(e) { return null; }
+      })());
+      var clickId = urlId || getCookie() || getLocal();
+      if (!clickId || !Number.isFinite(ts) || ts <= 0 || ts > Date.now() + 60000 || Date.now() - ts >= COOKIE_DAYS * 864e5) return;
+      setCookie(clickId, Math.max(0, COOKIE_DAYS - (Date.now() - ts) / 864e5));
+      setLocal(clickId, ts);
       injectIntoAllForms(clickId);
       observeForNewForms(clickId);
       writeToCart(clickId);

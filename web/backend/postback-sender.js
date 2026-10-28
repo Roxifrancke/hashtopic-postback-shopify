@@ -24,23 +24,28 @@ const NOTE_ATTR_NAMES = [
 ];
 
 /**
- * Extract click_id from a Shopify order, checking sources in priority order.
+ * Resolve the referral from an order-level cart attribute first, falling back
+ * to a line-item property for accelerated checkouts without cart attributes.
  *
- * Priority:
- *   1. line_items[].properties — primary, set via product form hidden input.
- *      Survives Buy It Now / Shop Pay / fast checkout where cart attributes
- *      may not be set. Tries each known property name (current + legacy).
- *   2. note_attributes — cart attribute path, retained as backward-compat
- *      fallback for stores on the older flow.
- *   3. null — not an affiliate order.
- *
- * Returns the trimmed string value, or null. Empty strings are treated as null
- * so a stale empty property doesn't suppress the note_attributes fallback.
+ * IMPORTANT: The source of a click ID is NOT a timestamp. If the cart and
+ * line-item values differ, this deterministic fallback does not establish
+ * last-click attribution. That requires validating the click IDs and their
+ * timestamps in the attribution backend. Do not infer recency from their names.
  */
 export function extractClickId(order) {
   if (!order) return null;
 
-  // 1. Primary: line item properties. First non-empty wins.
+  // 1. Prefer cart/order attribution for the whole order.
+  const noteAttrs = order.note_attributes;
+  if (Array.isArray(noteAttrs)) {
+    for (const attrName of NOTE_ATTR_NAMES) {
+      const hit = noteAttrs.find((a) => a?.name === attrName);
+      const value = hit?.value;
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+  }
+
+  // 2. Fall back to line item properties for accelerated checkout.
   const lineItems = order.line_items || [];
   for (const item of lineItems) {
     const props = item?.properties;
@@ -60,16 +65,6 @@ export function extractClickId(order) {
         const value = props[propName];
         if (typeof value === "string" && value.trim()) return value.trim();
       }
-    }
-  }
-
-  // 2. Fallback: note_attributes (cart attribute path).
-  const noteAttrs = order.note_attributes;
-  if (Array.isArray(noteAttrs)) {
-    for (const attrName of NOTE_ATTR_NAMES) {
-      const hit = noteAttrs.find((a) => a?.name === attrName);
-      const value = hit?.value;
-      if (typeof value === "string" && value.trim()) return value.trim();
     }
   }
 
@@ -98,10 +93,17 @@ export function buildPayload(shop, order, settings) {
     0
   );
 
+  // Product merchandise after item discounts only. Shipping, shipping tax,
+  // product tax and fees do not earn affiliate commission.
+  const commissionableSubtotal = Math.max(0, Math.round(lineItems.reduce(
+    (sum, item) => sum + item.price * item.quantity - item.total_discount, 0
+  ) * 100) / 100);
+
 return {
   click_id: clickId || null,
   order_id: String(order.id),
   order_total: parseFloat(order.total_price || 0),
+  eligible_product_subtotal: commissionableSubtotal,
   currency: order.currency || "USD",
   test: Boolean(settings?.test_mode),
   metadata: {
@@ -109,6 +111,8 @@ return {
     event_time: new Date().toISOString(),
     order_number: String(order.name || order.order_number || order.id),
     order_status: order.financial_status || "paid",
+    gross_order_total: parseFloat(order.total_price || 0),
+    commission_basis: "discounted_products_excluding_shipping_and_tax",
     shipping_total: parseFloat(order.total_shipping_price_set?.shop_money?.amount || 0),
     tax_total: parseFloat(order.total_tax || 0),
     discount_total: parseFloat(order.total_discounts || 0),
@@ -202,18 +206,13 @@ export function buildRefundPayload(shop, order, refund, settings) {
     };
   });
 
-  // Sum refund amount across transactions (in case of split refunds).
-  const refundTotal = (refund.transactions || [])
-    .filter((t) => t.kind === "refund" && t.status === "success")
-    .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
-
-  // Fall back to summing refund_line_items if no transactions present.
-  const fallbackTotal = refundLineItems.reduce(
-    (sum, li) => sum + (li.subtotal || 0) + (li.total_tax || 0),
-    0
-  );
-
-  const signedTotal = -1 * Math.abs(refundTotal || fallbackTotal);
+  // Refund only the merchandise component. Refund transactions may contain
+  // shipping and tax, neither of which was commissionable on purchase.
+  // Shopify refund_line_items.subtotal is the post-discount merchandise refund.
+  const refundedProducts = Math.round(refundLineItems.reduce(
+    (sum, li) => sum + Math.abs(li.subtotal || 0), 0
+  ) * 100) / 100;
+  const signedTotal = refundedProducts > 0 ? -refundedProducts : 0;
 
   const itemsCount = refundLineItems.reduce(
     (sum, li) => sum + (li.quantity || 0),
@@ -229,6 +228,7 @@ export function buildRefundPayload(shop, order, refund, settings) {
     test: Boolean(settings?.test_mode),
     metadata: {
       event: "refund",
+      commission_basis: "discounted_products_excluding_shipping_and_tax",
       event_time: new Date().toISOString(),
       order_number: String(order?.name || order?.order_number || order?.id || refund.order_id),
       refund_reference: String(refund.id),

@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import {
   getPendingRetries,
+  claimDelivery,
   markDeliverySent,
   markDeliveryFailed,
   purgeOldDeliveries,
@@ -39,6 +40,10 @@ export function startRetryWorker() {
 }
 
 async function retryDelivery(delivery) {
+  const claimed = await claimDelivery(delivery.id, MAX_ATTEMPTS);
+  if (!claimed) return;
+  delivery = claimed;
+
   const settings = await getSettings(delivery.shop);
   if (!settings?.webhook_url) return;
 
