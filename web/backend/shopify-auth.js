@@ -161,32 +161,7 @@ export async function getValidAccessToken(shopify, shop) {
     // Never hand callers a token already known to have expired when refresh fails.\n    if (refreshed) return refreshed;\n    return expiresAt.getTime() > Date.now() ? (tokens.accessToken || null) : null;
   }
 
-  // An expired offline token is never usable, even if its refresh token is missing.\n  if (expiresAt && expiresAt.getTime() <= Date.now()) return null;\n  return tokens.accessToken || null;\n}\n\n/**
- * Read-only classification of stored OAuth metadata. Never returns credentials,
- * token prefixes, exact timestamps, or merchant data.
- */
-export function classifyStoredOAuthTokens(tokens, nowMs = Date.now()) {
-  if (!tokens?.accessToken) return { status: "missing", reason: "no_stored_access_token" };
-  const expiresAt = tokens.accessTokenExpiresAt instanceof Date
-    ? tokens.accessTokenExpiresAt.getTime() : NaN;
-  const refreshExpiresAt = tokens.refreshTokenExpiresAt instanceof Date
-    ? tokens.refreshTokenExpiresAt.getTime() : NaN;
-  if (!Number.isFinite(expiresAt)) {
-    return { status: "unknown", reason: "access_expiry_not_recorded" };
-  }
-  if (expiresAt > nowMs) {
-    return { status: "token_present", reason: "stored_access_token_unexpired_not_probed" };
-  }
-  if (!tokens.refreshToken) {
-    return { status: "expired", reason: "access_expired_no_refresh_token" };
-  }
-  if (Number.isFinite(refreshExpiresAt) && refreshExpiresAt <= nowMs) {
-    return { status: "expired", reason: "access_and_refresh_expired" };
-  }
-  return { status: "renewal_required", reason: "access_expired_refresh_available" };
-}
-
-// ── Offline-token provisioning from an embedded session token ────────────────
+  // An expired offline token is never usable, even if its refresh token is missing.\n  if (expiresAt && expiresAt.getTime() <= Date.now()) return null;\n  return tokens.accessToken || null;\n}\n\n// ── Offline-token provisioning from an embedded session token ────────────────
 //
 // Server-to-server callers (e.g. MyStorefront's discount-code sync) need a
 // durable offline Admin token. The reliable way to (re)mint one is a token
