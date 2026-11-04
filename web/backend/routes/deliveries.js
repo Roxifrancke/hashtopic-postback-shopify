@@ -109,5 +109,78 @@ export default function deliveriesRouter(shopify) {
     }
   });
 
+
+  // Staging order recovery: Shopify can omit a webhook delivery (for example,
+  // while a service is unavailable). Recover ONLY an explicit numeric order ID
+  // through the merchant's authenticated Shopify session. The normal
+  // processOrder path handles referral checks, idempotency and postback retries.
+  router.post("/recover", async (req, res) => {
+    try {
+      const shop = res.locals.shopify.session.shop;
+      const orderId = String(req.body?.order_id ?? "");
+      if (!/^[1-9][0-9]{0,19}$/.test(orderId)) {
+        return res.status(400).json({ error: "A valid Shopify order ID is required." });
+      }
+
+      const settings = await getSettings(shop);
+      if (!settings?.webhook_url) {
+        return res.status(400).json({ error: "Webhook URL is not configured." });
+      }
+
+      let token = await getValidAccessToken(shopify, shop);
+      if (!token) {
+        return res.status(503).json({ error: "Shopify access token unavailable. Reopen the app and retry." });
+      }
+
+      const url = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/orders/${orderId}.json`;
+      const fetchOrder = (accessToken) => fetch(url, {
+        headers: { "X-Shopify-Access-Token": accessToken, Accept: "application/json" },
+        signal: AbortSignal.timeout(10000),
+      });
+      let shopifyResponse = await fetchOrder(token);
+      if (shopifyResponse.status === 401) {
+        const refreshedToken = await refreshShopifyAccessToken(shopify, shop);
+        if (refreshedToken && refreshedToken !== token) {
+          token = refreshedToken;
+          shopifyResponse = await fetchOrder(token);
+        }
+      }
+      if (!shopifyResponse.ok) {
+        return res.status(502).json({
+          error: "Could not retrieve order from Shopify.",
+          shopify_status: shopifyResponse.status,
+        });
+      }
+      const { order } = await shopifyResponse.json();
+      if (!order || String(order.id) !== orderId) {
+        return res.status(502).json({ error: "Shopify returned an unexpected order." });
+      }
+      if (!settings.paid_statuses.includes(order.financial_status)) {
+        return res.status(409).json({ error: "Order is not in an eligible paid status." });
+      }
+
+      // Reuse the same extractor as the real webhook, including line-item
+      // properties used by express checkout.
+      const { extractClickId } = await import("../postback-sender.js");
+      if (!extractClickId(order)) {
+        return res.status(409).json({ error: "This order has no MyStorefront referral click ID." });
+      }
+
+      await webhookHandlers.processOrder(shop, order);
+      const deliveries = await getDeliveriesForShop(shop, 50);
+      const delivery = deliveries.find((row) => row.order_id === orderId);
+      return res.json({
+        order_id: orderId,
+        delivery_status: delivery?.status || "not_created",
+        http_code: delivery?.last_http_code || null,
+        attempts: delivery?.attempts || 0,
+        recovered: delivery?.status === "sent",
+      });
+    } catch (err) {
+      console.error("Order recovery failed:", err?.message || err);
+      return res.status(500).json({ error: "Unable to recover order." });
+    }
+  });
+
   return router;
 }
