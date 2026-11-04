@@ -10,20 +10,29 @@ import { verifyTrustedReferralCandidate } from "./web-pixel-trusted-click.js";
 
 export async function reviewStagingPixelAttribution({
   candidate, webhook, webhookSecret, fetchOrder, lookupLegacyDelivery,
-  lookupTrustedClick, orderCreatedAt, nowMs=Date.now(),
+  lookupTrustedClick, nowMs=Date.now(),
 }) {
   const blocked=reason=>({status:"blocked",reason,commission_created:false,can_send_postback:false});
   if(typeof lookupTrustedClick!=="function")return blocked("trusted_click_adapter_missing");
-  // The caller may only get orderCreatedAt from server-fetched Shopify order.
-  // The production adapter must enforce that trust boundary. This research
-  // method is not exposed to the browser or mounted to any route.
+  if(typeof fetchOrder!=="function")return blocked("trusted_order_adapter_missing");
+  // Resolve the order ONCE through a trusted server-side Shopify adapter.
+  // Use the server-returned creation time, never a browser-supplied date.
+  let trustedOrder;
+  try {
+    trustedOrder=await fetchOrder(candidate?.shop,candidate?.order_id);
+  } catch {
+    return blocked("shopify_verification_unavailable");
+  }
+  if(!trustedOrder || typeof trustedOrder.created_at!=="string")
+    return blocked("trusted_order_time_missing");
   const paid=await reconcileStagingPixelCandidate({
-    candidate,webhook,webhookSecret,fetchOrder,lookupLegacyDelivery,nowMs,
+    candidate,webhook,webhookSecret,fetchOrder:async()=>trustedOrder,
+    lookupLegacyDelivery,nowMs,
   });
   if(paid.status!=="signed_paid_order_and_shopify_verified_pending_click_policy")
     return blocked(paid.reason || "paid_order_not_verified");
   const click=await verifyTrustedReferralCandidate({
-    candidate,lookupTrustedClick,orderCreatedAt,nowMs,
+    candidate,lookupTrustedClick,orderCreatedAt:trustedOrder.created_at,nowMs,
   });
   if(click.status!=="trusted_referral_confirmed")
     return blocked(click.reason || "trusted_click_not_verified");
