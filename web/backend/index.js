@@ -49,6 +49,7 @@ import { pixelScriptRouter } from "./routes/pixel-script.js";
 import discountCodesRouter from "./routes/discount-codes.js";
 import { shopifyHealthRouter } from "./routes/shopify-health.js";
 import { createStagingPixelHandler, isStagingPixelReceiverEnabled } from "./routes/web-pixel-staging.js";
+import { durableStagingEnabled, createDurableStagingPixelRouter } from "./routes/web-pixel-staging-durable.js";
 import cors from "cors";
 import gdprRouter from "./routes/gdpr.js";
 
@@ -275,6 +276,18 @@ if (isStagingPixelReceiverEnabled()) {
     createStagingPixelHandler({
       secret: process.env.WEB_PIXEL_STAGING_HASH_KEY,
     }).router());
+}
+
+// A second, independently gated opt-in path for durable staging records.
+// Disabled on production and on staging unless BOTH flags are set. Only use
+// after applying the staging-only schema and completing privacy review.
+if (durableStagingEnabled()) {
+  const { db } = await import("./db.js");
+  app.use("/api/staging/web-pixel-durable",
+    createDurableStagingPixelRouter({
+      pool: db,
+      secret: process.env.WEB_PIXEL_STAGING_HASH_KEY,
+    }));
 }
 
 // ── Public ping endpoint — called by MyStorefront to verify connection ──────
