@@ -1,0 +1,46 @@
+name: Shopify Web Pixel ephemeral Postgres tests
+on:
+  pull_request:
+    paths:
+      - 'web/backend/web-pixel-staging-ledger.js'
+      - 'web/backend/web-pixel-staging-retention.js'
+      - 'web/integration-tests/**'
+      - 'web/prototypes/shopify-web-pixel/staging-ledger.schema.sql'
+      - '.github/workflows/web-pixel-postgres-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  web-pixel-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pixel_test
+          POSTGRES_PASSWORD: pixel_test_password
+          POSTGRES_DB: mystorefront_pixel_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pixel_test -d mystorefront_pixel_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: web
+    env:
+      WEB_PIXEL_TEST_DATABASE_URL: postgresql://pixel_test:pixel_test_password@127.0.0.1:5432/mystorefront_pixel_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Verify ephemeral database connection only
+        run: node -e 'const u = new URL(process.env.WEB_PIXEL_TEST_DATABASE_URL); if (u.hostname !== "127.0.0.1" || u.pathname !== "/mystorefront_pixel_ci") process.exit(1)'
+      - name: Run database transaction and retention tests
+        run: node --test integration-tests/web-pixel-postgres.test.js
