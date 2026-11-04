@@ -1,4 +1,6 @@
 import { getValidAccessToken } from "../shopify-auth.js";
+import { applicationOnlyConfigured } from "../app-only-auth.js";
+import { fetchRefundOrderGraphQL } from "../refund-order-graphql.js";
 import {
   getSettings,
   upsertDelivery,
@@ -111,28 +113,34 @@ const ordersUpdated = async (topic, shop, body, webhookId) => {
  * built without click_id / customer info.
  */
 async function fetchOrder(shop, orderId, shopify) {
+  // Preserve existing OAuth REST requests for healthy stores.
+  // If the stored token is missing or Shopify returns 401, use a separate
+  // application-only GraphQL lookup for parent-order attribution.
   try {
     const accessToken = await getValidAccessToken(shopify, shop);
-    if (!accessToken) {
-      console.warn(`[MS] No admin token for ${shop} — cannot fetch order ${orderId} for refund`);
-      return null;
+    if (accessToken) {
+      const apiVersion = "2025-04";
+      const url = `https://${shop}/admin/api/${apiVersion}/orders/${orderId}.json`;
+      const res = await fetch(url, {
+        headers: {
+          "X-Shopify-Access-Token": accessToken,
+          "Content-Type": "application/json",
+        },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.order) return json.order;
+      } else if (res.status !== 401) {
+        // Do not mask Shopify permission/rate-limit/service errors as missing auth.
+        throw new Error(`OAuth order lookup HTTP ${res.status}`);
+      }
     }
-    const apiVersion = "2025-04";
-    const url = `https://${shop}/admin/api/${apiVersion}/orders/${orderId}.json`;
-    const res = await fetch(url, {
-      headers: {
-        "X-Shopify-Access-Token": accessToken,
-        "Content-Type": "application/json",
-      },
-    });
-    if (!res.ok) {
-      console.warn(`[MS] Order fetch failed for ${shop}/${orderId}: HTTP ${res.status}`);
-      return null;
+    if (applicationOnlyConfigured()) {
+      return await fetchRefundOrderGraphQL(shop, orderId);
     }
-    const json = await res.json();
-    return json.order || null;
+    throw new Error("No usable Shopify OAuth token or application-only credentials");
   } catch (err) {
-    console.error(`[MS] Order fetch error for ${shop}/${orderId}:`, err.message || err);
+    console.error(`[MS] Order fetch error for ${shop}/${orderId}: ${err.message || err}`);
     return null;
   }
 }
