@@ -63,8 +63,9 @@ export async function receiveSyntheticReferral({pool,secret,input,now=Date.now()
   if(!pool || typeof pool.connect!=="function" || typeof secret!=="string"||secret.length<32)
     return {status:503,body:{result:"staging_unavailable",commission_created:false}};
   const digest=value=>createHmac("sha256",secret).update(SHOP+":"+value).digest("hex");
-  const client=await pool.connect();
+  let client;
   try{
+    client=await pool.connect();
     await client.query("BEGIN");
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",[SHOP+":synthetic"]);
     await client.query(
@@ -86,14 +87,24 @@ export async function receiveSyntheticReferral({pool,secret,input,now=Date.now()
       commission_created:false,
     }};
   }catch{
-    try{await client.query("ROLLBACK");}catch{}
+    if(client)try{await client.query("ROLLBACK");}catch{}
     return {status:503,body:{result:"staging_unavailable",commission_created:false}};
-  }finally{client.release();}
+  }finally{if(client)client.release();}
 }
 
 export function createStagingSyntheticReceiptRouter({pool,secret,now=()=>Date.now()}){
   const router=Router();
   const rates=new Map();
+  // Staging-only, gated table creation. No production connection can pass
+  // stagingSyntheticReceiptEnabled's exact app URL and DB-name checks.
+  const ready=Promise.resolve().then(()=>pool.query(SYNTHETIC_RECEIPT_SCHEMA))
+    .then(()=>true).catch(()=>false);
+  router.use(async(_req,res,next)=>{
+    if(!await ready)return res.status(503).json({
+      result:"staging_unavailable",commission_created:false,
+    });
+    next();
+  });
   router.use((req,res,next)=>{
     res.set({"Cache-Control":"no-store","Vary":"Origin"});
     const origin=req.get("Origin");
