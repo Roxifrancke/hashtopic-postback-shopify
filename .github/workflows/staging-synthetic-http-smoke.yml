@@ -1,0 +1,35 @@
+name: Staging synthetic Web Pixel real HTTP smoke test
+on:
+  pull_request:
+    branches: [staging]
+    paths:
+      - '.github/workflows/staging-synthetic-http-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-https:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm synthetic referral receipt over real HTTPS
+        shell: bash
+        run: |
+          set -euo pipefail
+          when=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          suffix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}_abcdef"
+          payload=$(printf '{"type":"synthetic_referral","test_only":true,"shop":"mystorefront-test.myshopify.com","event_id":"test_event_%s","client_id":"test_client_%s","click_id":"test_referral_%s","observed_at":"%s"}' "$suffix" "$suffix" "$suffix" "$when")
+          endpoint="https://hashtopic-postback-shopify-staging.onrender.com/api/staging/web-pixel-synthetic-referral"
+          for attempt in 1 2 3; do
+            code=$(curl --silent --show-error --max-time 40 -o /tmp/pixel-receipt-response -D /tmp/pixel-receipt-headers -w '%{http_code}' \
+              -X POST -H 'Origin: null' -H 'Content-Type: application/json' \
+              --data-binary "$payload" "$endpoint") || code=000
+            if [ "$code" = "202" ]; then break; fi
+            sleep 10
+          done
+          test "$code" = "202" || { echo "Unexpected status: $code"; cat /tmp/pixel-receipt-response; exit 1; }
+          grep -Fq '"result":"synthetic_referral_recorded"' /tmp/pixel-receipt-response
+          grep -Fq '"commission_created":false' /tmp/pixel-receipt-response
+          grep -iq '^access-control-allow-origin: null' /tmp/pixel-receipt-headers
+          echo "Staging receiver accepted a synthetic referral. No customer data or real affiliate ID was sent."
