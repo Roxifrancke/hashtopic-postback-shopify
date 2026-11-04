@@ -17,8 +17,14 @@ No real brand or production extension was modified.
   mismatched, malformed and stale inputs.
 - Pure `assessLegacyDeliveryConflict` that rejects duplicate legacy deliveries
   and refuses to assume safe absence when the database lookup fails.
-- Unit tests. No production route, DB migration, outbound transmission, or
-  commission-changing code is enabled.
+- A gated, staging-only `POST /api/staging/web-pixel-observations` handler for the
+  HashTopic test store. It returns only provisional browser-event candidates.
+  It must never be considered authenticated payment proof. The handler stores
+  only bounded in-memory correlation data and hashes browser IDs; restart
+  clears all observations. It does not persist referrals or verify Shopify
+  orders. A public browser's `Origin` header is **not** authentication.
+- Unit tests. No production deployment, DB migration, outbound transmission,
+  or commission-changing code is enabled.
 
 ## Required implementation before real staging ingestion
 
@@ -64,3 +70,25 @@ extension UID must remain associated with the staging app.
 
 This research branch must remain unmerged and undeployed to production
 until the guards above have been validated.
+
+## Deployment state and feature gate (4 November 2026)
+
+**No deployment is authorized yet.** The feature flag defaults to OFF,
+and production must leave it OFF. The opt-in handler is mounted only when:
+
+- `WEB_PIXEL_STAGING_RECEIVER_ENABLED=true`
+- `SHOPIFY_APP_URL=https://hashtopic-postback-shopify-staging.onrender.com`
+- `WEB_PIXEL_STAGING_HASH_KEY` is a randomly generated, secret value with at
+  least 32 characters stored only in the staging server's secrets manager.
+
+No key may be embedded in a Web Pixel. No brand other than
+`mystorefront-test.myshopify.com` can submit a valid observation. For this
+phase, do **not** enable the flag or wire the browser pixel to the endpoint;
+first complete Shopify order retrieval, consent review, durable deduplication
+and a no-commission staging acceptance test. GitHub CI validates the code,
+not real Shopify interoperability.
+
+**Critical gap:** the existing staging pixel code is in the user's local
+`extensions/mystorefront-web-pixel/src/index.js`. It still logs a local
+`matched: true` result; it is not a remotely deployed ingestion client.
+The receiver alone cannot recover Orphan Street's missing attribution.
