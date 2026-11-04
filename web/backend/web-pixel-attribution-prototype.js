@@ -35,7 +35,7 @@ export function toPixelAttributionObservation({ event, shop, nowMs = Date.now() 
     return clickId ? { ...base, click_id: clickId } : null;
   }
   const orderId = event.data?.checkout?.order?.id;
-  if (typeof orderId !== "string" || !/^gid:\/\/shopify\/Order\/[0-9]+$/.test(orderId)) {
+  // Shopify documents an order ID as string|null, without promising GID format.\n  // Accept only unambiguous numeric IDs and canonical Shopify Order GIDs.\n  if (typeof orderId !== "string" ||\n      !(/^[0-9]{1,20}$/.test(orderId) || /^gid:\/\/shopify\/Order\/[0-9]{1,20}$/.test(orderId))) {
     return { ...base, order_id: null, outcome: "unmatched_checkout_event" };
   }
   return { ...base, order_id: orderId, outcome: "requires_verified_order_match" };
