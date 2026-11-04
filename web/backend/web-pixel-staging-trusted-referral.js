@@ -45,6 +45,9 @@ export function classifyTrustedReferral({click,link,brand,shop=TEST_SHOP,nowMs=D
   // cannot progress to sale attribution without independent consent evidence.
   return {
     status:"click_record_verified_pending_consent",
+    // Internal-only timestamp for independent Shopify order-time comparison.
+    // Never serialize this evidence into a public Web Pixel response.
+    clicked_at:new Date(at).toISOString(),
     consent_eligible:false,
     commission_created:false,
     can_send_postback:false,
