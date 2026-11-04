@@ -7,6 +7,8 @@
  *
  * Avoid use of a broad production Supabase service-role key: provision a
  * dedicated, least-privilege credential with SELECT on required tables.
+ * Source records are not independently proven to originate from the trusted
+ * affiliate-redirect. Their presence can never be labeled "verified".
  */
 import { createStagingTrustedReferralLookup } from "../backend/web-pixel-staging-trusted-referral.js";
 
@@ -51,10 +53,12 @@ export async function runStagingReadOnlyAudit({
       clickId:env.WEB_PIXEL_STAGING_AUDIT_CLICK_ID,
     });
     return {
-      status:result.status==="click_record_verified_pending_consent"?
-        "verified_pending_consent":"blocked",
-      reason:result.status==="click_record_verified_pending_consent"?
-        null:(result.reason||"source_validation_failed"),
+      status:result.status==="click_record_found_unproven"?
+        "record_found_unproven":"blocked",
+      reason:result.status==="click_record_found_unproven"?
+        "server_issuance_not_attested":(result.reason||"source_validation_failed"),
+      provenance_verified:false,
+      consent_eligible:false,
       commission_created:false,can_send_postback:false,
     };
   }catch{
@@ -70,5 +74,6 @@ export async function runStagingReadOnlyAudit({
 if(process.argv[1] && import.meta.url===new URL("file://"+process.argv[1]).href){
   const result=await runStagingReadOnlyAudit({env:process.env});
   console.log(JSON.stringify(result));
-  if(result.status!=="verified_pending_consent")process.exitCode=1;
+  // Do not return exit code 0 for an unproven record.
+  process.exitCode=1;
 }
