@@ -126,7 +126,16 @@ export async function queryShopifyGraphQL(shop, query, variables = {}, fetchImpl
     }
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.errors) {
-      throw new Error(`Shopify GraphQL query failed for ${shop}: HTTP ${response.status}`);
+      // GraphQL can return HTTP 200 with query validation errors. Report
+      // only sanitized GraphQL error messages, never extensions, requests,
+      // authorization headers, tokens, variables or response data.
+      const messages = Array.isArray(data.errors)
+        ? data.errors.slice(0, 5).map((e) =>
+            String(e?.message || "Unknown GraphQL error")
+              .replace(/[\r\n]+/g, " ")
+              .slice(0, 240))
+        : [];
+      throw new Error(`Shopify GraphQL query failed for ${shop}: HTTP ${response.status}${messages.length ? " - " + messages.join("; ") : ""}`);
     }
     return data.data;
   }
