@@ -175,3 +175,37 @@ the source of click IDs before any staging activation.
 All outputs remain manual-review-only, with `commission_created:false`
 and `can_send_postback:false`. No production routes or webhooks invoke
 these helpers.
+
+## MyStorefront schema-backed click lookup (4 November 2026)
+
+Inspected GitHub repository `Roxifrancke/mystorefrontmvp-a1a72025`,
+`src/integrations/supabase/types.ts` and
+`supabase/functions/affiliate-postback/index.ts`. Their schema shows
+`affiliate_clicks(click_id,creator_id,brand_id,link_id,created_at)`,
+`links(id,user_id,is_deleted)` and `brand_accounts(id)`.
+The current affiliate-postback looks up a click using `click_id` and
+uses its brand/creator for attribution.
+
+Added `web/backend/web-pixel-mystorefront-adapter.js`, a read-only
+server-side Supabase REST adapter for **this observed schema**, plus
+`web/tests/web-pixel-mystorefront-adapter.test.js`. The adapter checks
+the click, expected brand UUID, creator ownership of the link and that
+the brand exists. It validates the Supabase endpoint and requires a
+server-only service credential. It is NOT mounted in any HTTP route.
+
+**Not a deployed integration:** this repository may not represent the
+currently deployed MyStorefront release; no verified mapping from
+`mystorefront-test.myshopify.com` to a MyStorefront brand UUID is available.
+Never guess the brand UUID or Supabase project credential. The source
+schema has no consent-eligibility field, so the adapter deliberately returns
+`consent_eligible:false` for every referral. This means the downstream
+review gate remains blocked even with a matching stored click, until a
+separately verified consent-proof mechanism is built and reviewed.
+
+The required opt-in gate is
+`WEB_PIXEL_STAGING_TRUSTED_CLICK_ENABLED=true` alongside the existing
+staging receiver/persistence gates, exact staging service URL, the
+staging Supabase HTTPS project root, a valid brand UUID and a server-only
+service credential. Do **not** configure or enable these yet. Service-role
+keys must never appear in a Shopify Web Pixel, public client, GitHub
+source or logs. Use least-privilege server access where supported.
