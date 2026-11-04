@@ -68,3 +68,18 @@ test("lookup fails closed with no sensitive details",async()=>{
     assert.equal(JSON.stringify(r).includes("SECRET_ADMIN_TOKEN"),false);
   }
 });
+
+test("an attested server click is still nonpayable until consent",async()=>{
+  const r=await runStagingReadOnlyAudit({
+    env:valid,
+    lookupFactory:()=>async()=>({
+      status:"click_provenance_confirmed_pending_consent",
+      provenance_verified:true,consent_eligible:false,
+    }),
+  });
+  assert.equal(r.status,"provenance_confirmed_pending_consent");
+  assert.equal(r.provenance_verified,true);
+  assert.equal(r.consent_eligible,false);
+  assert.equal(r.can_send_postback,false);
+  assert.equal(r.commission_created,false);
+});
