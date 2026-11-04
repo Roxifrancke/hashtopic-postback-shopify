@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   fetchTrustedShopifyOrder,
+  verifyPixelCandidateReadOnly,
   verifyPixelCandidateWithoutCommission,
 } from "../backend/web-pixel-shopify-verifier.js";
 
@@ -80,4 +81,23 @@ test("no trusted paid order or missing dedup check always blocks",async()=>{
   assert.equal((await verifyPixelCandidateWithoutCommission({...base,fetchOrder:async()=>{throw Error("API unavailable")},lookupLegacyDelivery:async()=>false})).reason,"shopify_verification_unavailable");
   assert.equal((await verifyPixelCandidateWithoutCommission({...base,fetchOrder:async()=>({...valid(),financial_status:"unpaid"}),lookupLegacyDelivery:async()=>false})).reason,"payment_not_verified");
   assert.equal((await verifyPixelCandidateWithoutCommission({...base,candidate:{...candidate,shop:"orphan-street-clothing-shop.myshopify.com"},lookupLegacyDelivery:async()=>false})).reason,"candidate_not_allowed");
+});
+
+test("server-only wrapper invokes trusted lookup and never creates commissions",async()=>{
+  let checkedShop="";
+  let checkedId="";
+  const result=await verifyPixelCandidateReadOnly(candidate,{
+    nowMs:now,
+    fetchOrder:async()=>({
+      id:"123456789",financial_status:"paid",
+      created_at:"2026-11-04T17:40:00Z",cancelled_at:null,
+    }),
+    lookupLegacyDelivery:async (s,id)=>{
+      checkedShop=s;checkedId=id;return false;
+    },
+  });
+  assert.equal(checkedShop,shop);
+  assert.equal(checkedId,"123456789");
+  assert.equal(result.commission_created,false);
+  assert.equal(result.status,"verified_paid_candidate_pending_other_checks");
 });
