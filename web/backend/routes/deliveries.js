@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   getDeliveriesForShop,
+  getDeliveryForShopAndOrder,
   getDeliveryById,
   resetDeliveryForRetry,
   getSettings,
@@ -167,8 +168,7 @@ export default function deliveriesRouter(shopify) {
       }
 
       await webhookHandlers.processOrder(shop, order);
-      const deliveries = await getDeliveriesForShop(shop, 50);
-      const delivery = deliveries.find((row) => row.order_id === orderId);
+      const delivery = await getDeliveryForShopAndOrder(shop, orderId);
       return res.json({
         order_id: orderId,
         delivery_status: delivery?.status || "not_created",
