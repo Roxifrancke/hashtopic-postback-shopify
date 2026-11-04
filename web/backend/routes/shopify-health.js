@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { timingSafeEqual } from "node:crypto";
+import { classifyStoredOAuthTokens } from "../shopify-auth.js";
 import {
   applicationOnlyConfigured,
   queryShopifyGraphQL,
@@ -48,6 +49,10 @@ export function shopifyHealthRouter(options = {}) {
     return getSettings(shop);
   });
   const probe = options.probe || probeShopifyConnection;
+  const loadOAuthTokens = options.getOAuthTokens || (async (shop) => {
+    const { getShopifyTokenSet } = await import("../db.js");
+    return getShopifyTokenSet(shop);
+  });
 
   router.get("/", async (req, res) => {
     res.set("Cache-Control", "no-store");
@@ -74,11 +79,18 @@ export function shopifyHealthRouter(options = {}) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     try {
-      const result = await probe(shop);
+      const [result, oauth] = await Promise.all([
+        probe(shop),
+        loadOAuthTokens(shop).then(
+          tokens => classifyStoredOAuthTokens(tokens),
+          () => ({ status: "unknown", reason: "stored_oauth_check_unavailable" }),
+        ),
+      ]);
       return res.json({
         shop,
         api_auth: result.api_auth,
         reason: result.reason,
+        stored_oauth: oauth,
         checked_at: new Date().toISOString(),
         webhook_delivery: "unverified",
         storefront_capture: "unverified",
