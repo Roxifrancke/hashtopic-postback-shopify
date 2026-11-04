@@ -53,6 +53,23 @@ export async function fetchTrustedShopifyOrder(shop, orderId, query = queryShopi
  * This doesn't send a purchase to MyStorefront even if every check passes.
  * Missing/failed DB lookups fail closed. Shopify API errors fail closed.
  */
+/** Production DB is NOT called unless a developer explicitly invokes this
+ * server-only function. No Web Pixel route, cron or webhooks invoke it today.
+ * It returns review decisions, not purchase postbacks.
+ */
+export async function verifyPixelCandidateReadOnly(candidate, {
+  nowMs = Date.now(),
+  fetchOrder = fetchTrustedShopifyOrder,
+  lookupLegacyDelivery = async (shop,orderId) => {
+    const { hasLegacyOrderDelivery } = await import("./db.js");
+    return hasLegacyOrderDelivery(shop,orderId);
+  },
+} = {}) {
+  return verifyPixelCandidateWithoutCommission({
+    candidate,nowMs,fetchOrder,lookupLegacyDelivery,
+  });
+}
+
 export async function verifyPixelCandidateWithoutCommission({
   candidate, nowMs = Date.now(),
   fetchOrder = fetchTrustedShopifyOrder,
