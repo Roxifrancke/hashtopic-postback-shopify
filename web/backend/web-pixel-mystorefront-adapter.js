@@ -3,8 +3,11 @@
  * schema in Roxifrancke/mystorefrontmvp-a1a72025
  * src/integrations/supabase/types.ts (4 November 2026).
  *
- * Data model: affiliate_clicks(click_id, creator_id, brand_id, link_id,
- * created_at), links(id, user_id, is_deleted), brand_accounts(id).
+ * Data model verified read-only against the live MyStorefront Lovable project:
+ * affiliate_clicks(click_id, creator_id, brand_id, link_id, created_at),
+ * links(id, user_id, is_deleted), brand_accounts(id, store_url, website_url).
+ * The HashTopic brand currently lists mystorefront-test-2.myshopify.com,
+ * NOT the pixel test shop mystorefront-test.myshopify.com; reject mismatch.
  *
  * REQUIREMENTS:
  * - Use a SECRET server-only service credential, NEVER in a Web Pixel.
@@ -18,6 +21,24 @@
 const SHOP="mystorefront-test.myshopify.com";
 const CLICK_RE=/^[A-Za-z0-9_-]{8,128}$/;
 const UUID_RE=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function shopMatchesBrand(shop, brand) {
+  if (shop!==SHOP || !brand || typeof brand!=="object")return false;
+  const canonical=(value)=>{
+    if(typeof value!=="string" || !value.trim())return null;
+    try {
+      const input=value.trim();
+      const url=new URL(input.includes("://")?input:"https://"+input);
+      if(url.protocol!=="https:" || url.username || url.password ||
+         url.search || url.hash || (url.pathname!=="/" && url.pathname!==""))
+        return null;
+      return url.hostname.toLowerCase();
+    } catch {return null;}
+  };
+  // A matching configured Shopify domain is required. Other brand websites
+  // must never be accepted as sufficient proof of store ownership.
+  return [brand.store_url,brand.website_url].some(x=>canonical(x)===shop);
+}
 
 function validSupabaseUrl(raw) {
   if(typeof raw!=="string")throw Error("Supabase URL missing");
@@ -88,9 +109,10 @@ export function createTrustedClickLookup({
        links[0].user_id!==click.creator_id || links[0].is_deleted===true)
       return null;
     const brands=await readRows("brand_accounts",{
-      select:"id",id:"eq."+brandId,limit:"2",
+      select:"id,store_url,website_url",id:"eq."+brandId,limit:"2",
     });
-    if(brands.length!==1 || brands[0].id!==brandId)return null;
+    if(brands.length!==1 || brands[0].id!==brandId ||
+       !shopMatchesBrand(shop,brands[0]))return null;
 
     // NO consent status is present in this source schema. Do not pretend
     // Shopify's Customer Privacy consent can be derived from affiliate_clicks.
