@@ -1,0 +1,29 @@
+name: Staging read-only Shopify paid order review
+on:
+  pull_request:
+    branches: [staging]
+    paths:
+      - 'web/backend/web-pixel-staging-trusted-referral.js'
+      - 'web/backend/web-pixel-staging-paid-review.js'
+      - 'web/tests/web-pixel-staging-trusted-referral.test.js'
+      - 'web/tests/web-pixel-staging-paid-review.test.js'
+      - '.github/workflows/staging-paid-review-tests.yml'
+permissions:
+  contents: read
+jobs:
+  review-only:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run read-only referral and payment proof tests
+        run: node --test tests/web-pixel-staging-trusted-referral.test.js tests/web-pixel-staging-paid-review.test.js
+      - name: Syntax check
+        run: |
+          node --check backend/web-pixel-staging-trusted-referral.js
+          node --check backend/web-pixel-staging-paid-review.js
