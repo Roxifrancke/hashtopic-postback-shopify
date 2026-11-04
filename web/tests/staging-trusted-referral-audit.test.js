@@ -31,7 +31,7 @@ test("missing configuration never contacts MyStorefront",async()=>{
   assert.equal(invoked,false);
 });
 
-test("verified referral returns only sanitized, nonpayable decision",async()=>{
+test("read-only audit cannot claim verified referral when origin is unproven",async()=>{
   let called=false;
   const outcome=await runStagingReadOnlyAudit({
     env:valid,
@@ -42,13 +42,14 @@ test("verified referral returns only sanitized, nonpayable decision",async()=>{
         called=true;
         assert.equal(shop,"mystorefront-test.myshopify.com");
         assert.equal(clickId,valid.WEB_PIXEL_STAGING_AUDIT_CLICK_ID);
-        return {status:"click_record_verified_pending_consent",clicked_at:"2026-11-04T18:00:00.000Z"};
+        return {status:"click_record_found_unproven",reason:"server_issuance_not_attested"};
       };
     },
   });
   assert.equal(called,true);
   assert.deepEqual(outcome,{
-    status:"verified_pending_consent",reason:null,
+    status:"record_found_unproven",reason:"server_issuance_not_attested",
+    provenance_verified:false,consent_eligible:false,
     commission_created:false,can_send_postback:false,
   });
   assert.equal(JSON.stringify(outcome).includes(valid.WEB_PIXEL_STAGING_AUDIT_CLICK_ID),false);
