@@ -102,6 +102,19 @@ export async function lookupStagingCheckoutCandidate({
     const row=rows[0];
     if(typeof row.click_id!=="string"||!CLICK_RE.test(row.click_id))
       throw Error("Untrusted referral record");
+    // This is only a browser-supplied checkout observation. Keep candidates
+    // independently per hashed browser so a spoofed order ID cannot prevent
+    // an unrelated legitimate candidate from being recorded.
+    // No paid order, attribution or creator earning is created here.
+    await client.query(
+      `INSERT INTO web_pixel_staging_checkout_candidates
+       (shop,order_id,client_hash,click_id,observed_at)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (shop,order_id,client_hash) DO UPDATE SET
+         click_id=EXCLUDED.click_id,
+         observed_at=EXCLUDED.observed_at
+       WHERE web_pixel_staging_checkout_candidates.observed_at < EXCLUDED.observed_at`,
+      [shop,orderId,clientHash,row.click_id,new Date(at)]);
     return {status:"candidate_only",shop,order_id:orderId,click_id:row.click_id,
       requires_order_verification:true,commission_created:false};
   });
