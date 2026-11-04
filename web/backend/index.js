@@ -47,6 +47,7 @@ import webhookHandlers from "./webhooks/index.js";
 import { startRetryWorker } from "./retry-worker.js";
 import { pixelScriptRouter } from "./routes/pixel-script.js";
 import discountCodesRouter from "./routes/discount-codes.js";
+import { shopifyHealthRouter } from "./routes/shopify-health.js";
 import cors from "cors";
 import gdprRouter from "./routes/gdpr.js";
 
@@ -288,6 +289,9 @@ app.get("/api/settings/ping", async (req, res) => {
 
   return res.json({ ok: true });
 });
+
+// Authenticated read-only Shopify GraphQL check for MyStorefront servers.
+app.use("/api/shopify-health", shopifyHealthRouter());
 
 // ── MyStorefront-facing discount codes — also BEFORE session middleware ─────
 // Called by MyStorefront's servers using X-Mystorefront-Key auth (handled inside router).
