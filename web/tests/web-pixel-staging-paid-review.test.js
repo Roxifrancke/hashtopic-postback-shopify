@@ -56,6 +56,7 @@ test("forged webhook, wrong order or shop, unpaid, cancellation and stale click 
     {fetchShopifyOrder:async()=>({...order,cancelled_at:"2026-11-04T18:56:00Z"})},
     {lookupTrustedClick:async()=>({...click,clicked_at:"2026-09-01T00:00:00Z"})},
     {lookupTrustedClick:async()=>({...click,clicked_at:"2026-11-04T18:56:00Z"})},
+    {lookupTrustedClick:async()=>({status:"click_record_found_unproven",reason:"server_issuance_not_attested",consent_eligible:false,can_send_postback:false,commission_created:false})},
     {lookupTrustedClick:async()=>null},
     {hasLegacyDelivery:async()=>true},
     {hasLegacyDelivery:async()=>undefined},
