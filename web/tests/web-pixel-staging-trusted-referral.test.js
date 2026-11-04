@@ -15,11 +15,12 @@ const link={id:linkId,user_id:creatorId,is_deleted:false};
 const brand={id:brandId,website_url:STAGING_TEST_SHOP,store_url:null};
 const key="staging-readonly-test-secret-never-a-real-service-role-key";
 
-test("valid real-shaped UUID click yields only consent-blocked read-only decision",()=>{
+test("valid real-shaped UUID click does not prove server issuance",()=>{
   const result=classifyTrustedReferral({click,link,brand,nowMs});
   assert.deepEqual(result,{
-    status:"click_record_verified_pending_consent",
-    clicked_at:"2026-11-04T18:45:00.000Z",
+    status:"click_record_found_unproven",
+    reason:"server_issuance_not_attested",
+    provenance_verified:false,
     consent_eligible:false,commission_created:false,can_send_postback:false,
   });
   assert.equal(JSON.stringify(result).includes(creatorId),false);
@@ -58,14 +59,15 @@ function mockFetch({missing=false,deleted=false,mismatch=false,fail=false}={}){
   return {fn,calls};
 }
 
-test("server-only lookup reads exact click, link ownership and brand domain",async()=>{
+test("server-only lookup finds linked click but does not certify provenance",async()=>{
   const m=mockFetch();
   const lookup=createStagingTrustedReferralLookup({
     supabaseUrl:"https://exampleproject.supabase.co/",
     serviceKey:key,fetchImpl:m.fn,now:()=>nowMs,
   });
   const result=await lookup({clickId,shop:STAGING_TEST_SHOP});
-  assert.equal(result.status,"click_record_verified_pending_consent");
+  assert.equal(result.status,"click_record_found_unproven");
+  assert.equal(result.provenance_verified,false);
   assert.equal(result.consent_eligible,false);
   assert.equal(result.commission_created,false);
   assert.equal(m.calls.length,3);
