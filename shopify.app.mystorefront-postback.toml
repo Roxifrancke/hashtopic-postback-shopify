@@ -20,7 +20,9 @@ api_version = "2025-04"
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "read_orders,read_customers,read_price_rules,write_price_rules"
-optional_scopes = [ ]
+# Optional: only request these on test stores until GraphQL discount sync is proven.
+# Do not force existing installed brands through new required-scope consent.
+optional_scopes = ["read_discounts", "write_discounts"]
 use_legacy_install_flow = false
 
 [auth]
