@@ -48,6 +48,7 @@ import { startRetryWorker } from "./retry-worker.js";
 import { pixelScriptRouter } from "./routes/pixel-script.js";
 import discountCodesRouter from "./routes/discount-codes.js";
 import { shopifyHealthRouter } from "./routes/shopify-health.js";
+import { createStagingPixelHandler, isStagingPixelReceiverEnabled } from "./routes/web-pixel-staging.js";
 import cors from "cors";
 import gdprRouter from "./routes/gdpr.js";
 
@@ -265,6 +266,16 @@ app.use("/pixel", pixelScriptRouter);
 
 // Parse JSON body
 app.use(express.json());
+
+// Disabled by default and never enabled on the production Render service.
+// Shopify Web Pixels cannot hold a secret, so this is a strictly untrusted
+// candidate receiver. It does not modify orders, postbacks or commissions.
+if (isStagingPixelReceiverEnabled()) {
+  app.use("/api/staging/web-pixel-observations",
+    createStagingPixelHandler({
+      secret: process.env.WEB_PIXEL_STAGING_HASH_KEY,
+    }).router());
+}
 
 // ── Public ping endpoint — called by MyStorefront to verify connection ──────
 // Must be registered BEFORE the session middleware, as this request comes
