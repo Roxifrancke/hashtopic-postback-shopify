@@ -232,3 +232,31 @@ The live MyStorefront `affiliate_clicks` schema includes no Shopify consent
 record. The adapter therefore deliberately marks `consent_eligible:false`
 and cannot release a real attribution. A documented, trustworthy consent
 provenance strategy is required before this flag can be eligible.
+
+## Shopify Customer Privacy API research (4 November 2026)
+
+The official Web Pixels Standard API exposes `init.customerPrivacy` and
+`customerPrivacy.subscribe('visitorConsentCollected', ...)`. The four
+boolean properties include `analyticsProcessingAllowed` and
+`marketingAllowed`. A pixel extension's declared privacy purposes also
+control whether Shopify loads the pixel at all.
+
+Official references:
+- https://shopify.dev/docs/api/web-pixels-api/standard-api/customerprivacy
+- https://shopify.dev/docs/api/web-pixels-api/pixel-privacy
+- https://shopify.dev/docs/api/customer-privacy
+
+Added `web/prototypes/shopify-web-pixel/consent-gate.js` and tests. Its
+read-only, in-pixel status tracker rejects missing/false permissions and
+reacts to consent changes. Shopify's permission allowance may reflect
+merchant/region policy rather than an explicit opt-in: it is **not the same
+thing as server-verifiable positive consent**. Browser-reported consent
+must not by itself authenticate attribution. The local user-tested pixel
+has not been replaced by this research helper. A complete rollout needs
+privacy review, an appropriate retention policy and consent provenance.
+
+Do **not** change the HashTopic brand's configured Shopify URL. The
+live MyStorefront record references `mystorefront-test-2.myshopify.com`,
+while the controlled pixel test was on `mystorefront-test.myshopify.com`.
+Safest path is a separately verified test-brand association for the correct
+shop, with brand owner consent and no production remapping.
