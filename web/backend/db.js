@@ -277,6 +277,17 @@ export async function getDeliveriesForShop(shop, limit = 50) {
   return rows;
 }
 
+// Look up a specific delivery regardless of the 50-row UI pagination window.
+// Scope to the authenticated shop to avoid exposing another merchant's order.
+export async function getDeliveryForShopAndOrder(shop, orderId) {
+  await ensureReady();
+  const { rows } = await pool.query(
+    "SELECT * FROM deliveries WHERE shop = $1 AND order_id = $2 ORDER BY updated_at DESC LIMIT 1",
+    [shop, orderId]
+  );
+  return rows[0] || null;
+}
+
 export async function getDeliveryById(id) {
   await ensureReady();
   const { rows } = await pool.query("SELECT * FROM deliveries WHERE id = $1", [id]);
