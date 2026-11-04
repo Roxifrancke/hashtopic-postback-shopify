@@ -260,3 +260,30 @@ live MyStorefront record references `mystorefront-test-2.myshopify.com`,
 while the controlled pixel test was on `mystorefront-test.myshopify.com`.
 Safest path is a separately verified test-brand association for the correct
 shop, with brand owner consent and no production remapping.
+
+## Controlled staging preflight (4 November 2026)
+
+Added `web/backend/web-pixel-staging-preflight.js` and tests. This
+read-only, fail-closed checklist confirms that all key conditions have
+explicit evidence before a person authorizes staging. It does NOT inspect
+live Shopify or Render state on its own; boolean inputs must come from
+independently verified checks, not a browser or merchant-provided claim.
+
+**Known blocker:** the HashTopic brand in MyStorefront currently records
+`mystorefront-test-2.myshopify.com`, not the tested
+`mystorefront-test.myshopify.com`. Do not silently update this existing
+brand or attempt to count orders from the other store. Either independently
+prove an existing brand-to-shop association or provision a dedicated
+staging-only MyStorefront brand, with appropriate test isolation.
+
+Shopify's Web Pixels customerPrivacy Standard API exposes
+`init.customerPrivacy` and
+`customerPrivacy.subscribe('visitorConsentCollected', ...)`.
+Shopify's pixel manager loads a pixel only when its declared permissions
+are allowed. This is a browser-side privacy gate, not cryptographic server
+proof of consent; independent policy and data-handling review remain
+outstanding. Official reference:
+https://shopify.dev/docs/api/web-pixels-api/pixel-privacy
+
+No request was made to Shopify checkout or live merchant data and no
+staging receiver flags, production feature flags or commissions were enabled.
