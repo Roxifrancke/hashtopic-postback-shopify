@@ -1,6 +1,5 @@
 import { Router } from "express";
 import { timingSafeEqual } from "node:crypto";
-import { getSettings } from "../db.js";
 import {
   applicationOnlyConfigured,
   queryShopifyGraphQL,
@@ -44,7 +43,10 @@ export async function probeShopifyConnection(shop, query = queryShopifyGraphQL,
 
 export function shopifyHealthRouter(options = {}) {
   const router = Router();
-  const loadSettings = options.getSettings || getSettings;
+  const loadSettings = options.getSettings || (async (shop) => {
+    const { getSettings } = await import("../db.js");
+    return getSettings(shop);
+  });
   const probe = options.probe || probeShopifyConnection;
 
   router.get("/", async (req, res) => {
