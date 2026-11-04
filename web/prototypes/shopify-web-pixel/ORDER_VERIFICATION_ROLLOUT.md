@@ -116,3 +116,38 @@ pseudonymous browser IDs, validate trusted click IDs against MyStorefront,
 test transaction concurrency against real staging Postgres, and connect
 receipt of Shopify-signed paid webhooks to a secure reconciliation queue.
 Only then may a verified staging event become a **manual review record**.
+
+## Double-gated durable receiver and retention (code only, 4 November 2026)
+
+The branch now includes `web/backend/routes/web-pixel-staging-durable.js`
+and `web/backend/web-pixel-staging-retention.js` plus tests.
+Durable endpoint `POST /api/staging/web-pixel-durable` is mounted **only if**
+all existing staging guard conditions are satisfied AND
+`WEB_PIXEL_STAGING_PERSISTENCE_ENABLED=true`.
+Both flags default to OFF. **Do not set them or deploy the branch yet.**
+
+The adapter accepts only HashTopic test-store events, hashes browser/event
+identifiers on the server, enforces strict schemas, limits request size,
+rejects unknown fields and returns at most an unverified candidate. It
+writes no Shopify orders, postbacks, sales, commissions or refunds. Its origin
+check is NOT authentication. The local limiter is not distributed protection.
+
+Retention code provides bounded deletion of expired referrals (30-day
+window), event IDs older than 30 days, and manual-review rows older than
+7 days. Client-hash erasure removes the referral row but is **not** complete
+cross-table data erasure, because order review rows and event IDs cannot
+be linked back to the erased client. Before any use with real shoppers,
+introduce suitable consent provenance, deletion mapping, scheduling,
+backup retention and a verified privacy policy. No cleanup job is scheduled.
+
+The database schema file is still a reference design and **has not been
+applied**. Existing staging Web Pixel JavaScript on the user's Mac still logs
+locally; it does NOT call this endpoint. This addition alone does not provide
+real end-to-end tracking, and does not fix Orphan Street's missing capture.
+
+A full test requires (a) applying the migration to a separate staging DB,
+(b) direct PostgreSQL concurrency and retention testing, (c) secure click
+validation against MyStorefront, (d) explicit customer privacy review,
+(e) validating Shopify's paid webhook and Admin API against the exact same
+order, (f) destination-side order-level idempotency, and (g) deliberate
+controlled rollout to staging only.
