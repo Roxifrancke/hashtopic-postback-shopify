@@ -8,6 +8,10 @@
  * brand_accounts(id, website_url, store_url)
  *
  * A service key must be supplied exclusively by a trusted backend worker.
+ * WARNING: real affiliate_clicks rows are also insertable from the browser
+ * under existing RLS. A row cannot attest to its own server-side issuance.
+ * Neither UUID shape, source_page, owner match nor an elevated SELECT
+ * credential establishes referral provenance.
  * Browser-reported click IDs/shops are never proof of a paid order.
  * Shopify consent status is unavailable in this table: eligibility remains
  * false, regardless of a valid record.
@@ -41,13 +45,14 @@ export function classifyTrustedReferral({click,link,brand,shop=TEST_SHOP,nowMs=D
   const at=Date.parse(click.created_at);
   if(!Number.isFinite(nowMs)||!Number.isFinite(at)||at>nowMs+60000||
      nowMs-at>=WINDOW_MS)return reject("outside_referral_window");
-  // No user or click data is returned to any caller. Even verified clicks
-  // cannot progress to sale attribution without independent consent evidence.
+  // The existing affiliate_clicks table permits some anonymous inserts.
+  // A structurally valid row cannot prove that MyStorefront's trusted
+  // affiliate redirect issued it. Treat it as UNPROVEN until a separately
+  // authenticated, server-issued provenance record is available.
   return {
-    status:"click_record_verified_pending_consent",
-    // Internal-only timestamp for independent Shopify order-time comparison.
-    // Never serialize this evidence into a public Web Pixel response.
-    clicked_at:new Date(at).toISOString(),
+    status:"click_record_found_unproven",
+    reason:"server_issuance_not_attested",
+    provenance_verified:false,
     consent_eligible:false,
     commission_created:false,
     can_send_postback:false,
