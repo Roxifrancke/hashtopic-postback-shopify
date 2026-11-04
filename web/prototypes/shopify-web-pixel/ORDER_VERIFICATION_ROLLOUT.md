@@ -209,3 +209,26 @@ staging Supabase HTTPS project root, a valid brand UUID and a server-only
 service credential. Do **not** configure or enable these yet. Service-role
 keys must never appear in a Shopify Web Pixel, public client, GitHub
 source or logs. Use least-privilege server access where supported.
+
+## Verified live Lovable schema and Shopify test-shop mismatch
+
+Read-only inspected the MyStorefront project's live Lovable-backed Supabase
+schema. The `affiliate_clicks`, `links`, `brand_accounts` and
+`affiliate_orders` fields match the adapter's GitHub reference.
+
+**Important, do not proceed with an attributed staging order yet:** the
+HashTopic brand in that environment currently has `website_url` set to
+`mystorefront-test-2.myshopify.com`, whereas the pixel checkout demonstration
+ran on `mystorefront-test.myshopify.com`. These are distinct Shopify stores.
+
+The click adapter now fails closed unless the brand's authoritative
+`store_url` or `website_url` corresponds exactly to the Shopify test
+store. No MyStorefront records were edited. The project may need a separate
+test brand connected to the actual test shop, with correct permissions, before
+the next end-to-end test. Confirm ownership/installation and brand mapping;
+never remap a working brand merely to make a test pass.
+
+The live MyStorefront `affiliate_clicks` schema includes no Shopify consent
+record. The adapter therefore deliberately marks `consent_eligible:false`
+and cannot release a real attribution. A documented, trustworthy consent
+provenance strategy is required before this flag can be eligible.
