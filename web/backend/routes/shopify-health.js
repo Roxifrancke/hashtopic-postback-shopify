@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { timingSafeEqual } from "node:crypto";
-import { classifyStoredOAuthTokens } from "../shopify-auth.js";
+import { classifyStoredOAuthTokens } from "../oauth-token-status.js";
 import {
   applicationOnlyConfigured,
   queryShopifyGraphQL,
