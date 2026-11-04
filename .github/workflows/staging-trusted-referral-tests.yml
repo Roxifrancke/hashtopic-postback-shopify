@@ -1,0 +1,25 @@
+name: Staging read-only trusted referral validation
+on:
+  pull_request:
+    branches: [staging]
+    paths:
+      - 'web/backend/web-pixel-staging-trusted-referral.js'
+      - 'web/tests/web-pixel-staging-trusted-referral.test.js'
+      - '.github/workflows/staging-trusted-referral-tests.yml'
+permissions:
+  contents: read
+jobs:
+  trusted-referral:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify read-only referral logic
+        run: node --test tests/web-pixel-staging-trusted-referral.test.js
+      - name: Check module syntax
+        run: node --check backend/web-pixel-staging-trusted-referral.js
