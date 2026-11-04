@@ -158,10 +158,17 @@ export async function getValidAccessToken(shopify, shop) {
 
   if (nearExpiry) {
     const refreshed = await refreshShopifyAccessToken(shopify, shop);
-    // Never hand callers a token already known to have expired when refresh fails.\n    if (refreshed) return refreshed;\n    return expiresAt.getTime() > Date.now() ? (tokens.accessToken || null) : null;
+    // Never hand callers a token already known to have expired when refresh fails.
+    if (refreshed) return refreshed;
+    return expiresAt.getTime() > Date.now() ? (tokens.accessToken || null) : null;
   }
 
-  // An expired offline token is never usable, even if its refresh token is missing.\n  if (expiresAt && expiresAt.getTime() <= Date.now()) return null;\n  return tokens.accessToken || null;\n}\n\n// ── Offline-token provisioning from an embedded session token ────────────────
+  // An expired offline token is never usable, even if its refresh token is missing.
+  if (expiresAt && expiresAt.getTime() <= Date.now()) return null;
+  return tokens.accessToken || null;
+}
+
+// ── Offline-token provisioning from an embedded session token ────────────────
 //
 // Server-to-server callers (e.g. MyStorefront's discount-code sync) need a
 // durable offline Admin token. The reliable way to (re)mint one is a token
