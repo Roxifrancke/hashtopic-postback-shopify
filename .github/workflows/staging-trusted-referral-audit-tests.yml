@@ -1,0 +1,25 @@
+name: Staging one-shot read-only referral audit
+on:
+  pull_request:
+    branches: [staging]
+    paths:
+      - 'web/scripts/staging-trusted-referral-audit.mjs'
+      - 'web/tests/staging-trusted-referral-audit.test.js'
+      - '.github/workflows/staging-trusted-referral-audit-tests.yml'
+permissions:
+  contents: read
+jobs:
+  readonly-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify default-off isolated audit
+        run: node --test tests/staging-trusted-referral-audit.test.js tests/web-pixel-staging-trusted-referral.test.js
+      - name: Verify script syntax
+        run: node --check scripts/staging-trusted-referral-audit.mjs
