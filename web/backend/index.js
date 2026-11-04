@@ -48,6 +48,9 @@ import { startRetryWorker } from "./retry-worker.js";
 import { pixelScriptRouter } from "./routes/pixel-script.js";
 import discountCodesRouter from "./routes/discount-codes.js";
 import { shopifyHealthRouter } from "./routes/shopify-health.js";
+import { createStagingPixelHandler, isStagingPixelReceiverEnabled } from "./routes/web-pixel-staging.js";
+import { durableStagingEnabled, createDurableStagingPixelRouter } from "./routes/web-pixel-staging-durable.js";
+import { stagingPixelProbeEnabled, createStagingPixelTransportProbe, STAGING_PIXEL_PROBE_PATH } from "./routes/web-pixel-transport-probe.js";
 import cors from "cors";
 import gdprRouter from "./routes/gdpr.js";
 
@@ -85,6 +88,11 @@ const shopify = shopifyApp({
 });
 
 const app = express();
+
+// Separate disabled-by-default CORS transport handshake for the test pixel.
+if (stagingPixelProbeEnabled()) {
+  app.use(STAGING_PIXEL_PROBE_PATH, createStagingPixelTransportProbe());
+}
 
 // Cross-origin policy. The embedded admin UI calls this backend same-origin,
 // and every server-to-server caller (the MyStorefront / Loveable Supabase edge
@@ -265,6 +273,28 @@ app.use("/pixel", pixelScriptRouter);
 
 // Parse JSON body
 app.use(express.json());
+
+// Disabled by default and never enabled on the production Render service.
+// Shopify Web Pixels cannot hold a secret, so this is a strictly untrusted
+// candidate receiver. It does not modify orders, postbacks or commissions.
+if (isStagingPixelReceiverEnabled()) {
+  app.use("/api/staging/web-pixel-observations",
+    createStagingPixelHandler({
+      secret: process.env.WEB_PIXEL_STAGING_HASH_KEY,
+    }).router());
+}
+
+// A second, independently gated opt-in path for durable staging records.
+// Disabled on production and on staging unless BOTH flags are set. Only use
+// after applying the staging-only schema and completing privacy review.
+if (durableStagingEnabled()) {
+  const { db } = await import("./db.js");
+  app.use("/api/staging/web-pixel-durable",
+    createDurableStagingPixelRouter({
+      pool: db,
+      secret: process.env.WEB_PIXEL_STAGING_HASH_KEY,
+    }));
+}
 
 // ── Public ping endpoint — called by MyStorefront to verify connection ──────
 // Must be registered BEFORE the session middleware, as this request comes

@@ -277,6 +277,21 @@ export async function getDeliveriesForShop(shop, limit = 50) {
   return rows;
 }
 
+/** Exact, read-only legacy delivery check for potential Web Pixel orders.
+ * NEVER use a paginated listing to infer absence; DB failures must propagate.
+ * Absence alone is not proof of payment and must not create a postback.
+ */
+export async function hasLegacyOrderDelivery(shop, orderId) {
+  await ensureReady();
+  const { rows } = await pool.query(
+    "SELECT EXISTS (SELECT 1 FROM deliveries WHERE shop = $1 AND order_id = $2) AS present",
+    [shop, String(orderId)],
+  );
+  if (typeof rows?.[0]?.present !== "boolean")
+    throw new Error("Unable to confirm existing legacy order deliveries");
+  return rows[0].present;
+}
+
 export async function getDeliveryById(id) {
   await ensureReady();
   const { rows } = await pool.query("SELECT * FROM deliveries WHERE id = $1", [id]);
