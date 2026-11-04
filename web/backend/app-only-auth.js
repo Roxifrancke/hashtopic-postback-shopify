@@ -101,24 +101,33 @@ export async function getApplicationOnlyToken(shop, fetchImpl = fetch) {
 
 /**
  * Read-only GraphQL diagnostic helper. Never returns the access token.
- * Shopify application-only tokens are GraphQL-only.
+ * Application-only tokens are GraphQL Admin API only.
+ * A rejected token is evicted and freshly issued once, never retried indefinitely.
  */
 export async function queryShopifyGraphQL(shop, query, variables = {}, fetchImpl = fetch) {
   validateShopDomain(shop);
   if (typeof query !== "string" || !/^\s*(query\b|\{)/.test(query)) {
     throw new Error("Only read-only GraphQL queries are allowed");
   }
-  const token = await getApplicationOnlyToken(shop, fetchImpl);
-  const response = await fetchImpl(`https://${shop}/admin/api/2026-10/graphql.json`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
-    body: JSON.stringify({ query, variables }),
-    redirect: "error",
-    signal: AbortSignal.timeout(10000),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.errors) {
-    throw new Error(`Shopify GraphQL query failed for ${shop}: HTTP ${response.status}`);
+  const endpoint = `https://${shop}/admin/api/2026-10/graphql.json`;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const token = await getApplicationOnlyToken(shop, fetchImpl);
+    const response = await fetchImpl(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
+      body: JSON.stringify({ query, variables }),
+      redirect: "error",
+      signal: AbortSignal.timeout(10000),
+    });
+    if (response.status === 401) {
+      invalidateApplicationOnlyToken(shop);
+      if (attempt === 0) continue;
+      throw new Error("Application-only token rejected twice by Shopify");
+    }
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.errors) {
+      throw new Error(`Shopify GraphQL query failed for ${shop}: HTTP ${response.status}`);
+    }
+    return data.data;
   }
-  return data.data;
 }
