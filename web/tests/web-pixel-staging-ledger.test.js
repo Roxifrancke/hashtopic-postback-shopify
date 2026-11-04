@@ -59,6 +59,7 @@ test("matching checkout returns candidate only; missing referral no commission",
   assert.equal(result.status,"candidate_only");
   assert.equal(result.commission_created,false);
   assert.equal(result.requires_order_verification,true);
+  assert.equal(m.calls.some(x=>x.query.includes("INSERT INTO web_pixel_staging_checkout_candidates")),true);
   const absent=mockPool(q=>q.includes("RETURNING event_hash")?{rows:[{event_hash:eventHash}]}:{rows:[]});
   const none=await lookupStagingCheckoutCandidate({
     pool:absent.pool,shop,clientHash,eventHash:"c".repeat(64),
