@@ -38,7 +38,7 @@ const checkout=(overrides={})=>({
 });
 
 async function reset(){
-  await pool.query("TRUNCATE web_pixel_staging_referrals, web_pixel_staging_event_ids, web_pixel_staging_order_review, deliveries");
+  await pool.query("TRUNCATE web_pixel_staging_referrals, web_pixel_staging_event_ids, web_pixel_staging_order_review, web_pixel_staging_checkout_candidates, deliveries");
 }
 
 test.before(async()=>{
@@ -125,4 +125,36 @@ test("real PostgreSQL: erasure and retention delete only expected staging rows",
   assert.equal(cleaned.referrals,1);
   assert.equal(cleaned.reviews,1);
   assert.equal(cleaned.commission_created,false);
+});
+
+test("real PostgreSQL: two clients can record separate unverified candidates for the same order",async()=>{
+  await reset();
+  await persistStagingReferral(referral());
+  await persistStagingReferral(referral({clientHash:h("b"),clickId:"test_referral_BBBBBB"}));
+  const [one,two]=await Promise.all([
+    lookupStagingCheckoutCandidate(checkout()),
+    lookupStagingCheckoutCandidate(checkout({clientHash:h("b")})),
+  ]);
+  assert.equal(one.status,"candidate_only");
+  assert.equal(two.status,"candidate_only");
+  assert.equal(one.commission_created,false);
+  const q=await pool.query("SELECT click_id FROM web_pixel_staging_checkout_candidates WHERE shop=$1 AND order_id=$2",[shop,"123456789"]);
+  assert.equal(q.rows.length,2);
+});
+
+test("real PostgreSQL: erasure deletes the client's checkout candidates and retention ages out candidates",async()=>{
+  await reset();
+  await persistStagingReferral(referral());
+  await lookupStagingCheckoutCandidate(checkout());
+  const erased=await eraseStagingPixelClient({pool,clientHash:h("a")});
+  assert.equal(erased.candidates_removed,1);
+  const remain=await pool.query("SELECT count(*)::int AS count FROM web_pixel_staging_checkout_candidates");
+  assert.equal(remain.rows[0].count,0);
+  await pool.query(`INSERT INTO web_pixel_staging_checkout_candidates
+    (shop,order_id,client_hash,click_id,observed_at,created_at)
+    VALUES($1,$2,$3,$4,$5,$6)`,[shop,"555555555",h("b"),"test_referral_expired",
+    new Date("2026-09-01T00:00:00Z"),new Date("2026-09-01T00:00:00Z")]);
+  const result=await cleanExpiredStagingPixelRecords({pool,now:new Date("2026-11-04T18:00:00Z")});
+  assert.equal(result.candidates,1);
+  assert.equal(result.commission_created,false);
 });
