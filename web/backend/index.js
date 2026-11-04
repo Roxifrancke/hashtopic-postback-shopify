@@ -49,6 +49,7 @@ import { pixelScriptRouter } from "./routes/pixel-script.js";
 import discountCodesRouter from "./routes/discount-codes.js";
 import cors from "cors";
 import gdprRouter from "./routes/gdpr.js";
+import { createStagingPixelTransportProbe, stagingPixelProbeEnabled, STAGING_PIXEL_PROBE_PATH } from "./routes/web-pixel-transport-probe.js";
 
 const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || "3000", 10);
 const STATIC_PATH =
@@ -84,6 +85,12 @@ const shopify = shopifyApp({
 });
 
 const app = express();
+
+// This zero-data transport probe is only enabled on staging.
+// It must precede the general CORS handler, which otherwise intercepts OPTIONS.
+if (stagingPixelProbeEnabled()) {
+  app.use(STAGING_PIXEL_PROBE_PATH, createStagingPixelTransportProbe());
+}
 
 // Cross-origin policy. The embedded admin UI calls this backend same-origin,
 // and every server-to-server caller (the MyStorefront / Loveable Supabase edge
