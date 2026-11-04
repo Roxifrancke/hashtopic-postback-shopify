@@ -20,6 +20,7 @@ function fakePool({duplicate=false,error=false,full=false}={}){
   const calls=[];let releases=0;
   return {
     calls,get releases(){return releases;},
+    async query(sql,args=[]){calls.push({sql,args});return {rows:[]};},
     async connect(){return {
       async query(sql,args=[]){
         calls.push({sql,args});
