@@ -162,7 +162,9 @@ export async function getValidAccessToken(shopify, shop) {
 
   if (nearExpiry) {
     const refreshed = await refreshShopifyAccessToken(shopify, shop);
-    return refreshed || tokens.accessToken || null;
+    // Do not reuse an expired or nearly expired token if refresh fails.
+    // Callers must treat null as an authentication failure and surface it.
+    return refreshed || null;
   }
 
   return tokens.accessToken || null;
