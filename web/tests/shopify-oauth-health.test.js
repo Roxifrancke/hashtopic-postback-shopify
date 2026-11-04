@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyStoredOAuthTokens } from "../backend/shopify-auth.js";
+import { classifyStoredOAuthTokens } from "../backend/oauth-token-status.js";
 
 const now = Date.parse("2026-11-04T10:00:00Z");
 const access = "test-access-token";
