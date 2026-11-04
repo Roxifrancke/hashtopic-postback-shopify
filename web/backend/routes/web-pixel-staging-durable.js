@@ -74,6 +74,21 @@ export async function observeDurableStagingPixel({
 
 export function createDurableStagingPixelRouter({pool,secret,now=()=>Date.now()}){
   const router=Router();
+  const limits=new Map();
+  // In-memory guard only; production-grade distributed throttling is still
+  // required before handling real customer events or scaling staging.
+  function allowRequest(ip) {
+    const t=now(), key=createHmac("sha256",secret).update(String(ip)).digest("hex");
+    for(const [k,v] of limits)if(t-v.since>60000)limits.delete(k);
+    const old=limits.get(key);
+    if(old && t-old.since<60000){
+      if(old.count>=20)return false;
+      old.count++;
+      return true;
+    }
+    limits.set(key,{since:t,count:1});
+    return true;
+  }
   // Development-only endpoint. The staging app's existing global CORS
   // middleware must also include the test origin in its staging allowlist.
   router.options("/",(req,res)=>{
@@ -86,6 +101,9 @@ export function createDurableStagingPixelRouter({pool,secret,now=()=>Date.now()}
     }).sendStatus(204);
   });
   router.post("/",json({limit:"2kb",strict:true}),async(req,res)=>{
+    if(!allowRequest(req.ip))return res.status(429).json({
+      status:"rate_limited",commission_created:false,
+    });
     const result=await observeDurableStagingPixel({
       input:req.body,origin:req.headers.origin,pool,secret,nowMs:now(),
     });
