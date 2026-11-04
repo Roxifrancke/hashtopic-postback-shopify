@@ -36,7 +36,11 @@ test("health endpoint rejects unauthorised requests and only probes matching sho
   app.use("/api/shopify-health", shopifyHealthRouter({
     getSettings: async (shop) => shop === "test.myshopify.com"
       ? { mystorefront_api_key: "brand-secret" } : null,
-    probe: async () => { probes++; return { api_auth: "verified", reason: "app_only_graphql_success" }; }
+    probe: async () => { probes++; return { api_auth: "verified", reason: "app_only_graphql_success" }; },
+    getOAuthTokens: async () => ({ accessToken: "private-access-token",
+      refreshToken: "private-refresh-token",
+      accessTokenExpiresAt: new Date(Date.now() - 60000),
+      refreshTokenExpiresAt: new Date(Date.now() + 600000) })
   }));
   const server = app.listen(0, "127.0.0.1");
   try {
@@ -60,6 +64,9 @@ test("health endpoint rejects unauthorised requests and only probes matching sho
     assert.equal(success.status, 200);
     const body = await success.json();
     assert.equal(body.api_auth, "verified");
+    assert.equal(body.stored_oauth.status, "renewal_required");
+    assert.equal(JSON.stringify(body).includes("private-access-token"), false);
+    assert.equal(JSON.stringify(body).includes("private-refresh-token"), false);
     assert.equal(body.end_to_end, "unverified");
     assert.equal(body.webhook_delivery, "unverified");
     assert.equal(probes, 1);

@@ -35,10 +35,6 @@ function addSecondsToNow(seconds) {
   return new Date(Date.now() + seconds * 1000);
 }
 
-function prefix(t) {
-  return t ? `${String(t).slice(0, 8)}…` : null;
-}
-
 /**
  * Save a token-exchange (or refresh) response across session storage +
  * settings. The session's `expires` field is what the SDK reads when it
@@ -120,7 +116,7 @@ async function doRefresh(shopify, shop) {
   }
 
   console.log(
-    `[MS] refresh succeeded for ${shop}: access_token=${prefix(json.access_token)}, refresh_token=${prefix(json.refresh_token)}, expires_in=${json.expires_in}, refresh_token_expires_in=${json.refresh_token_expires_in}`,
+    `[MS] refresh succeeded for ${shop}; expiry metadata updated`,
   );
 
   await persistShopifyTokens(shopify, shop, json);
@@ -162,9 +158,13 @@ export async function getValidAccessToken(shopify, shop) {
 
   if (nearExpiry) {
     const refreshed = await refreshShopifyAccessToken(shopify, shop);
-    return refreshed || tokens.accessToken || null;
+    // Never hand callers a token already known to have expired when refresh fails.
+    if (refreshed) return refreshed;
+    return expiresAt.getTime() > Date.now() ? (tokens.accessToken || null) : null;
   }
 
+  // An expired offline token is never usable, even if its refresh token is missing.
+  if (expiresAt && expiresAt.getTime() <= Date.now()) return null;
   return tokens.accessToken || null;
 }
 
