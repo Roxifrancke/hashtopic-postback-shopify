@@ -151,3 +151,27 @@ validation against MyStorefront, (d) explicit customer privacy review,
 (e) validating Shopify's paid webhook and Admin API against the exact same
 order, (f) destination-side order-level idempotency, and (g) deliberate
 controlled rollout to staging only.
+
+## MyStorefront trust check contract (not yet connected)
+
+Two server-only modules were added:
+- `web-pixel-trusted-click.js` accepts only a result from an authenticated,
+  MyStorefront-owned server-side lookup confirming an existing click ID,
+  its creator, its brand/shop, the click timestamp and consent eligibility.
+  A missing or errored lookup rejects the candidate.
+- `web-pixel-staging-review.js` composes Shopify's HMAC-signed paid-order
+  evidence, an independently fetched Shopify order and that trusted click.
+  The Shopify order creation time is obtained from the trusted Shopify
+  response, not the browser.
+
+This repository does NOT yet have a verified adapter to the MyStorefront
+database. The `trusted_mystorefront_server` marker is a **contract**, not
+authentication by itself. An attacker who can call this pure helper with
+arbitrary objects could simulate evidence, so never expose it as an API or
+call it with browser-provided server evidence. Map it to an authenticated
+internal query, enforce real brand ownership and consent status and validate
+the source of click IDs before any staging activation.
+
+All outputs remain manual-review-only, with `commission_created:false`
+and `can_send_postback:false`. No production routes or webhooks invoke
+these helpers.
