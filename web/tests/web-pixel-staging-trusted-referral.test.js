@@ -19,6 +19,7 @@ test("valid real-shaped UUID click yields only consent-blocked read-only decisio
   const result=classifyTrustedReferral({click,link,brand,nowMs});
   assert.deepEqual(result,{
     status:"click_record_verified_pending_consent",
+    clicked_at:"2026-11-04T18:45:00.000Z",
     consent_eligible:false,commission_created:false,can_send_postback:false,
   });
   assert.equal(JSON.stringify(result).includes(creatorId),false);
