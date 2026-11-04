@@ -341,3 +341,24 @@ settings. Origin is never an authentication mechanism.
 The tested Web Pixel extension is still on the user's Mac and does not
 send checkout observations to this receiver. No actual staging migration,
 Render deployment, server-side MyStorefront sale or commission occurred.
+
+## Strict sandbox transport probe (4 November 2026)
+
+Added a separate inert staging-only endpoint at
+`/api/staging/web-pixel-transport-probe`, mounted before the general
+CORS middleware, with only two allowed origins: literal `null` (Shopify
+strict sandbox) and `https://mystorefront-test.myshopify.com`.
+It accepts an empty POST and a browser OPTIONS preflight; neither stores
+events nor creates postbacks or commissions. An explicit
+`WEB_PIXEL_STAGING_TRANSPORT_PROBE_ENABLED=true` plus the exact staging
+`SHOPIFY_APP_URL` is necessary for mounting. Default is off.
+
+This probe is a transport test ONLY. Shopify strict-sandbox Origin
+behavior can vary, so an actual browser network trace is still necessary.
+Never interpret Origin as authentication or broaden it to enable the
+real attribution receiver. The live pixel and production app are unchanged.
+After deploying the probe to the staging Render host, validate an empty
+`fetch()` from the Shopify test pixel and check the network response.
+Only then design authenticated server-side order reconciliation and
+privacy-compliant event storage; do not route a browser observation into
+paid-order or commission logic.
