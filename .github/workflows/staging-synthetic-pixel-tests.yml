@@ -1,0 +1,30 @@
+name: Shopify staging synthetic Pixel receipt tests
+on:
+  pull_request:
+    branches: [staging]
+    paths:
+      - 'web/backend/routes/web-pixel-staging-synthetic-receipt.js'
+      - 'web/backend/index.js'
+      - 'web/tests/web-pixel-staging-synthetic-receipt.test.js'
+      - '.github/workflows/staging-synthetic-pixel-tests.yml'
+permissions:
+  contents: read
+jobs:
+  synthetic-receipt:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install staging dependencies
+        run: npm install --no-audit --no-fund
+      - name: Test synthetic event receiver
+        run: node --test tests/web-pixel-staging-synthetic-receipt.test.js tests/web-pixel-transport-probe.test.js
+      - name: Check module syntax
+        run: |
+          node --check backend/index.js
+          node --check backend/routes/web-pixel-staging-synthetic-receipt.js

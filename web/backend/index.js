@@ -35,7 +35,7 @@ import { PostgreSQLSessionStorage } from "@shopify/shopify-app-session-storage-p
 import { ApiVersion } from "@shopify/shopify-api";
 import { restResources } from "@shopify/shopify-api/rest/admin/2025-04";
 
-import { getSettings, getShopifyTokenSet } from "./db.js";
+import { db, getSettings, getShopifyTokenSet } from "./db.js";
 import {
   persistShopifyTokens,
   needsOfflineProvision,
@@ -50,6 +50,7 @@ import discountCodesRouter from "./routes/discount-codes.js";
 import cors from "cors";
 import gdprRouter from "./routes/gdpr.js";
 import { createStagingPixelTransportProbe, stagingPixelProbeEnabled, STAGING_PIXEL_PROBE_PATH } from "./routes/web-pixel-transport-probe.js";
+import { createStagingSyntheticReceiptRouter, stagingSyntheticReceiptEnabled, SYNTHETIC_RECEIPT_PATH } from "./routes/web-pixel-staging-synthetic-receipt.js";
 
 const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || "3000", 10);
 const STATIC_PATH =
@@ -90,6 +91,16 @@ const app = express();
 // It must precede the general CORS handler, which otherwise intercepts OPTIONS.
 if (stagingPixelProbeEnabled()) {
   app.use(STAGING_PIXEL_PROBE_PATH, createStagingPixelTransportProbe());
+}
+
+// Synthetic-only staging receipt. Explicitly opt-in and isolated from
+// the paid-order, postback, commission and Shopify webhook routes.
+// Mount before global CORS, so Shopify sandbox preflights reach it.
+if (stagingSyntheticReceiptEnabled()) {
+  app.use(SYNTHETIC_RECEIPT_PATH, createStagingSyntheticReceiptRouter({
+    pool: db,
+    secret: process.env.WEB_PIXEL_STAGING_RECEIPT_HASH_KEY,
+  }));
 }
 
 // Cross-origin policy. The embedded admin UI calls this backend same-origin,
