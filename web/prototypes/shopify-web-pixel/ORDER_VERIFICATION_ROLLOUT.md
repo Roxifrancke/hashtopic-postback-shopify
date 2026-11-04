@@ -92,3 +92,27 @@ not real Shopify interoperability.
 `extensions/mystorefront-web-pixel/src/index.js`. It still logs a local
 `matched: true` result; it is not a remotely deployed ingestion client.
 The receiver alone cannot recover Orphan Street's missing attribution.
+
+## Durable staging ledger prototype (not deployed)
+
+Files in PR #9:
+- `staging-ledger.schema.sql`: reference-only SQL for restricted HashTopic
+  staging referrals, hashed browser/event identifiers and unique order review.
+  **It is not a migration run by the Shopify app** and must not be applied
+  to the production database.
+- `web/backend/web-pixel-staging-ledger.js`: opt-in transaction helpers with
+  replay-safe event insert, last-referral ordering, 30-day expiry, and
+  exact legacy-delivery conflict checks before a unique manual-review claim.
+- `web/tests/web-pixel-staging-ledger.test.js`: mocked transaction tests;
+  real PostgreSQL transaction and crash/retry testing is still required.
+
+No new ledger helpers are mounted in `web/backend/index.js` or used by the
+current Web Pixel receiver. **There is no live durable storage**, Shopify
+payment confirmation integration, automatic affiliate order or commission.
+
+Before any staging deployment: configure least-privilege DB access and
+retention/deletion automation, settle the lawfulness and purpose of
+pseudonymous browser IDs, validate trusted click IDs against MyStorefront,
+test transaction concurrency against real staging Postgres, and connect
+receipt of Shopify-signed paid webhooks to a secure reconciliation queue.
+Only then may a verified staging event become a **manual review record**.
