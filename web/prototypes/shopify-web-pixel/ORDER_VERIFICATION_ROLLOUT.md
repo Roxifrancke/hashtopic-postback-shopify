@@ -287,3 +287,26 @@ https://shopify.dev/docs/api/web-pixels-api/pixel-privacy
 
 No request was made to Shopify checkout or live merchant data and no
 staging receiver flags, production feature flags or commissions were enabled.
+
+## Staging project environment audit
+
+Inspected Lovable projects with read-only SQL:
+- Main MyStorefront `4eab06f5-090c-47b2-a089-08e606446bea`: has the
+  matching `affiliate_clicks`, `links`, `brand_accounts` and
+  `affiliate_orders` fields, but its HashTopic brand is mapped to
+  `mystorefront-test-2.myshopify.com`.
+- Legacy `Staging_MyStorefront_13 March`
+  `f271bfa4-6a44-4d82-89c3-d2f9ad3935bf`: database enabled and
+  affiliate tables exist, but `brand_accounts.store_url` is absent and
+  the HashTopic/test Shopify brand query returned no rows.
+
+Added a read-only schema compatibility checker and test-brand ownership
+gate in `web/backend/web-pixel-environment-audit.js`.
+The March staging project must **not** be treated as a schema-compatible
+clone just because it has affiliate tables. No database writes were made.
+
+Next safe step: create or identify a genuine isolated test brand in an
+appropriate up-to-date staging MyStorefront environment, confirm ownership
+of the exact `mystorefront-test.myshopify.com` store, then revisit data
+retention, consent and credentials. Do not alter the live HashTopic record,
+secret keys, or commission flow to make the tests pass.
