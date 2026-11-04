@@ -98,3 +98,27 @@ export async function getApplicationOnlyToken(shop, fetchImpl = fetch) {
   pending.set(shop, request);
   return request;
 }
+
+/**
+ * Read-only GraphQL diagnostic helper. Never returns the access token.
+ * Shopify application-only tokens are GraphQL-only.
+ */
+export async function queryShopifyGraphQL(shop, query, variables = {}, fetchImpl = fetch) {
+  validateShopDomain(shop);
+  if (typeof query !== "string" || !/^\s*(query\b|\{)/.test(query)) {
+    throw new Error("Only read-only GraphQL queries are allowed");
+  }
+  const token = await getApplicationOnlyToken(shop, fetchImpl);
+  const response = await fetchImpl(`https://${shop}/admin/api/2026-10/graphql.json`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
+    body: JSON.stringify({ query, variables }),
+    redirect: "error",
+    signal: AbortSignal.timeout(10000),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.errors) {
+    throw new Error(`Shopify GraphQL query failed for ${shop}: HTTP ${response.status}`);
+  }
+  return data.data;
+}
