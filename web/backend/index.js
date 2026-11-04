@@ -50,6 +50,7 @@ import discountCodesRouter from "./routes/discount-codes.js";
 import { shopifyHealthRouter } from "./routes/shopify-health.js";
 import { createStagingPixelHandler, isStagingPixelReceiverEnabled } from "./routes/web-pixel-staging.js";
 import { durableStagingEnabled, createDurableStagingPixelRouter } from "./routes/web-pixel-staging-durable.js";
+import { stagingPixelProbeEnabled, createStagingPixelTransportProbe, STAGING_PIXEL_PROBE_PATH } from "./routes/web-pixel-transport-probe.js";
 import cors from "cors";
 import gdprRouter from "./routes/gdpr.js";
 
@@ -87,6 +88,11 @@ const shopify = shopifyApp({
 });
 
 const app = express();
+
+// Separate disabled-by-default CORS transport handshake for the test pixel.
+if (stagingPixelProbeEnabled()) {
+  app.use(STAGING_PIXEL_PROBE_PATH, createStagingPixelTransportProbe());
+}
 
 // Cross-origin policy. The embedded admin UI calls this backend same-origin,
 // and every server-to-server caller (the MyStorefront / Loveable Supabase edge
