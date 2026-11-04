@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {createTrustedClickLookup,trustedClickAdapterConfigured} from "../backend/web-pixel-mystorefront-adapter.js";
+import {createTrustedClickLookup,trustedClickAdapterConfigured,shopMatchesBrand} from "../backend/web-pixel-mystorefront-adapter.js";
 const shop="mystorefront-test.myshopify.com";
 const brandId="11111111-1111-4111-8111-111111111111";
 const creatorId="22222222-2222-4222-8222-222222222222";
@@ -16,7 +16,7 @@ const configuration={
   WEB_PIXEL_STAGING_SUPABASE_URL:"https://exampleproject.supabase.co",
   WEB_PIXEL_STAGING_SUPABASE_SERVICE_KEY:key,
 };
-function mockFetch({missingClick=false,deleted=false}={}) {
+function mockFetch({missingClick=false,deleted=false,brandWebsite=shop}={}) {
   const requests=[];
   const fn=async (url,opts)=>{
     requests.push({url,opts});
@@ -28,7 +28,7 @@ function mockFetch({missingClick=false,deleted=false}={}) {
       link_id:linkId,created_at:"2026-11-04T16:30:00Z",
     }];
     else if(url.includes("/links?"))rows=[{id:linkId,user_id:creatorId,is_deleted:deleted}];
-    else if(url.includes("/brand_accounts?"))rows=[{id:brandId}];
+    else if(url.includes("/brand_accounts?"))rows=[{id:brandId,store_url:null,website_url:brandWebsite}];
     else throw Error("Unexpected table");
     return {ok:true,async json(){return rows;}};
   };
@@ -75,4 +75,16 @@ test("rejects invalid store/domain and refuses missing secrets",async()=>{
   });
   await assert.rejects(lookup({shop:"another.myshopify.com",clickId}),/Invalid staging/);
   assert.equal(f.requests.length,0);
+});
+
+test("rejects live HashTopic brand mapped to a different Shopify test shop",async()=>{
+  const actualBrandDomain="mystorefront-test-2.myshopify.com";
+  assert.equal(shopMatchesBrand(shop,{website_url:actualBrandDomain,store_url:null}),false);
+  assert.equal(shopMatchesBrand(shop,{website_url:"https://"+shop+"/",store_url:null}),true);
+  const fetcher=mockFetch({brandWebsite:actualBrandDomain});
+  const lookup=createTrustedClickLookup({
+    supabaseUrl:configuration.WEB_PIXEL_STAGING_SUPABASE_URL,
+    serviceKey:key,brandId,fetchImpl:fetcher.fn,
+  });
+  assert.equal(await lookup({shop,clickId}),null);
 });
