@@ -36,6 +36,21 @@ CREATE TABLE IF NOT EXISTS web_pixel_staging_order_review (
   PRIMARY KEY (shop, order_id)
 );
 
+-- These remain untrusted browser observations. Unique per order/client
+-- avoids losing a legitimate referral if another client submits a forged
+-- order ID first. No uniqueness claim over an entire paid Shopify order.
+CREATE TABLE IF NOT EXISTS web_pixel_staging_checkout_candidates (
+  shop TEXT NOT NULL CHECK (shop = 'mystorefront-test.myshopify.com'),
+  order_id TEXT NOT NULL,
+  client_hash CHAR(64) NOT NULL,
+  click_id TEXT NOT NULL,
+  observed_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (shop, order_id, client_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_web_pixel_staging_checkout_candidate_age
+  ON web_pixel_staging_checkout_candidates(created_at);
+
 COMMIT;
 
 -- BEFORE ENABLEMENT: configure retention: daily deletion of expired referrals,
