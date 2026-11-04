@@ -35,7 +35,7 @@ import { PostgreSQLSessionStorage } from "@shopify/shopify-app-session-storage-p
 import { ApiVersion } from "@shopify/shopify-api";
 import { restResources } from "@shopify/shopify-api/rest/admin/2025-04";
 
-import { getSettings, getShopifyTokenSet } from "./db.js";
+import { db, getSettings, getShopifyTokenSet } from "./db.js";
 import {
   persistShopifyTokens,
   needsOfflineProvision,
