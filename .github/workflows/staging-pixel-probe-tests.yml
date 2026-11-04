@@ -20,10 +20,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - name: Install locked dependencies
-        run: npm ci
+      - name: Install staging dependencies
+        run: npm install --no-audit --no-fund
       - name: Test isolated transport probe
         run: node --test tests/web-pixel-transport-probe.test.js
       - name: Syntax-check backend entrypoint
