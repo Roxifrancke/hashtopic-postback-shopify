@@ -5,6 +5,7 @@ on:
     paths:
       - 'web/backend/web-pixel-staging-trusted-referral.js'
       - 'web/tests/web-pixel-staging-trusted-referral.test.js'
+      - 'web/tests/web-pixel-protected-issuance.test.js'
       - '.github/workflows/staging-trusted-referral-tests.yml'
 permissions:
   contents: read
@@ -20,6 +21,6 @@ jobs:
         with:
           node-version: '22'
       - name: Verify read-only referral logic
-        run: node --test tests/web-pixel-staging-trusted-referral.test.js
+        run: node --test tests/web-pixel-staging-trusted-referral.test.js tests/web-pixel-protected-issuance.test.js
       - name: Check module syntax
         run: node --check backend/web-pixel-staging-trusted-referral.js
