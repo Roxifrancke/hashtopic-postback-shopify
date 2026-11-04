@@ -310,3 +310,34 @@ appropriate up-to-date staging MyStorefront environment, confirm ownership
 of the exact `mystorefront-test.myshopify.com` store, then revisit data
 retention, consent and credentials. Do not alter the live HashTopic record,
 secret keys, or commission flow to make the tests pass.
+
+## Verified brand connection and provisional checkout persistence (4 November 2026)
+
+Read-only verified MyStorefront's current HashTopic brand and its
+`brand_shopify_settings` record after the user changed settings. The brand
+website is `mystorefront-test.myshopify.com`; Shopify discount-code sync
+references that same shop, the staging Render URL, and `is_verified=true`.
+This resolves the *previous* store mapping discrepancy. It does **not**
+verify Shopify Web Pixel event delivery, checkout attribution, consent or
+paid-order postbacks. The previously recorded health check referred to the
+old test-2 domain and must not be taken as current tracking proof.
+
+Added the `web_pixel_staging_checkout_candidates` research table and
+transactional insert in `lookupStagingCheckoutCandidate`. It retains
+unverified candidates keyed by (shop, order, hashed browser). Multiple
+different browsers can propose the same order; this must never mean
+multiple commissions. Candidate erasure by client hash and 30-day cleanup
+are included in the retention helper, with isolated PostgreSQL tests.
+No existing affiliate or delivery table is written by this feature.
+
+**Live activation remains blocked.** Web Pixel requests originate from a
+strict sandbox. Shopify documents that outgoing `fetch` must support
+CORS. Our current receiver still requires an exact storefront `Origin`
+header; this may not match the strict sandbox's actual origin. Do not
+change it to a blanket `*` origin or enable the receiver without first
+capturing a test-store CORS preflight and checking Shopify's privacy
+settings. Origin is never an authentication mechanism.
+
+The tested Web Pixel extension is still on the user's Mac and does not
+send checkout observations to this receiver. No actual staging migration,
+Render deployment, server-side MyStorefront sale or commission occurred.
