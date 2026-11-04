@@ -123,6 +123,13 @@ export function createStagingTrustedReferralLookup({
       ]);
       if(links.length!==1||brands.length!==1)
         return {status:"blocked",reason:"link_or_brand_missing",consent_eligible:false,commission_created:false};
+      // Independently validate shop/brand/link/timing BEFORE checking for
+      // provenance, so malformed or mismatched clicks are not reported as
+      // otherwise valid rows that merely lack server issuance evidence.
+      const structural=classifyTrustedReferral({
+        click,link:links[0],brand:brands[0],shop,nowMs:now(),
+      });
+      if(structural.status==="blocked")return structural;
       // The protected issuance table must be deployed and readable only with
       // the server-side credential. A missing table/row/error rejects proof.
       const issuances=await rows("affiliate_click_issuances",
