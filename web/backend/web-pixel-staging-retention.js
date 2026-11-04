@@ -32,9 +32,14 @@ export async function cleanExpiredStagingPixelRecords({
         SELECT ctid FROM web_pixel_staging_order_review
         WHERE shop=$1 AND reviewed_at<=$2 LIMIT $3
       )`,[SHOP,reviewCutoff,batchSize]);
-    if (![referrals,events,reviews].every(n=>Number.isInteger(n)&&n>=0))
+    const {rowCount:candidates}=await client.query(
+      `DELETE FROM web_pixel_staging_checkout_candidates WHERE ctid IN (
+        SELECT ctid FROM web_pixel_staging_checkout_candidates
+        WHERE shop=$1 AND created_at<=$2 LIMIT $3
+      )`,[SHOP,cutoff,batchSize]);
+    if (![referrals,events,reviews,candidates].every(n=>Number.isInteger(n)&&n>=0))
       throw new Error("Staging cleanup result incomplete");
-    return {referrals,events,reviews,commission_created:false};
+    return {referrals,events,reviews,candidates,commission_created:false};
   } finally {
     client.release();
   }
@@ -53,12 +58,20 @@ export async function eraseStagingPixelClient({
     throw new Error("Invalid staging erasure");
   const client=await pool.connect();
   try {
+    await client.query("BEGIN");
     const result=await client.query(
       "DELETE FROM web_pixel_staging_referrals WHERE shop=$1 AND client_hash=$2",
       [SHOP,clientHash]);
-    if (!Number.isInteger(result.rowCount))
+    const candidates=await client.query(
+      "DELETE FROM web_pixel_staging_checkout_candidates WHERE shop=$1 AND client_hash=$2",
+      [SHOP,clientHash]);
+    if (![result.rowCount,candidates.rowCount].every(Number.isInteger))
       throw new Error("Staging erasure result incomplete");
-    return {referrals_removed:result.rowCount,commission_created:false};
+    await client.query("COMMIT");
+    return {referrals_removed:result.rowCount,candidates_removed:candidates.rowCount,commission_created:false};
+  } catch(error) {
+    try { await client.query("ROLLBACK"); } catch {}
+    throw error;
   } finally {
     client.release();
   }
