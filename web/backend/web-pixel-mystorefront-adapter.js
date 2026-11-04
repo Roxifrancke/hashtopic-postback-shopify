@@ -6,8 +6,9 @@
  * Data model verified read-only against the live MyStorefront Lovable project:
  * affiliate_clicks(click_id, creator_id, brand_id, link_id, created_at),
  * links(id, user_id, is_deleted), brand_accounts(id, store_url, website_url).
- * The HashTopic brand currently lists mystorefront-test-2.myshopify.com,
- * NOT the pixel test shop mystorefront-test.myshopify.com; reject mismatch.
+ * HashTopic's brand website and Shopify staging sync were verified on
+ * 4 November 2026 as mystorefront-test.myshopify.com. Reject any future
+ * mismatch; a verified discount sync does not prove Web Pixel attribution.
  *
  * REQUIREMENTS:
  * - Use a SECRET server-only service credential, NEVER in a Web Pixel.
