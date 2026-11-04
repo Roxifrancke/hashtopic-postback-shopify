@@ -11,7 +11,9 @@
  * WARNING: real affiliate_clicks rows are also insertable from the browser
  * under existing RLS. A row cannot attest to its own server-side issuance.
  * Neither UUID shape, source_page, owner match nor an elevated SELECT
- * credential establishes referral provenance.
+ * credential establishes referral provenance. New issuance rows must be
+ * created by a protected server-only RPC; pre-migration clicks remain
+ * unproven and may not generate new Web Pixel commissions.
  * Browser-reported click IDs/shops are never proof of a paid order.
  * Shopify consent status is unavailable in this table: eligibility remains
  * false, regardless of a valid record.
@@ -32,7 +34,7 @@ function canonicalShopDomain(value){
   } catch {return null;}
 }
 
-export function classifyTrustedReferral({click,link,brand,shop=TEST_SHOP,nowMs=Date.now()}={}){
+export function classifyTrustedReferral({click,link,brand,issuance,shop=TEST_SHOP,nowMs=Date.now()}={}){
   const reject=reason=>({status:"blocked",reason,consent_eligible:false,commission_created:false});
   if(shop!==TEST_SHOP||!brand||brand.id!==TEST_BRAND ||
      ![brand.website_url,brand.store_url].some(x=>canonicalShopDomain(x)===shop))
@@ -45,17 +47,28 @@ export function classifyTrustedReferral({click,link,brand,shop=TEST_SHOP,nowMs=D
   const at=Date.parse(click.created_at);
   if(!Number.isFinite(nowMs)||!Number.isFinite(at)||at>nowMs+60000||
      nowMs-at>=WINDOW_MS)return reject("outside_referral_window");
-  // The existing affiliate_clicks table permits some anonymous inserts.
-  // A structurally valid row cannot prove that MyStorefront's trusted
-  // affiliate redirect issued it. Treat it as UNPROVEN until a separately
-  // authenticated, server-issued provenance record is available.
-  return {
+  // Ordinary affiliate_clicks records can be created anonymously. Only an
+  // issuance row from the separately protected, service-role-only ledger
+  // proves that the server-side redirect generated this referral.
+  const unproven=()=>({
     status:"click_record_found_unproven",
     reason:"server_issuance_not_attested",
-    provenance_verified:false,
-    consent_eligible:false,
-    commission_created:false,
-    can_send_postback:false,
+    provenance_verified:false,consent_eligible:false,
+    commission_created:false,can_send_postback:false,
+  });
+  if(!issuance || issuance.issuer!=="affiliate_redirect" ||
+     issuance.click_id!==click.click_id ||
+     issuance.link_id!==click.link_id ||
+     issuance.creator_id!==click.creator_id ||
+     issuance.brand_id!==click.brand_id)return unproven();
+  const issued=Date.parse(issuance.issued_at);
+  if(!Number.isFinite(issued)||Math.abs(issued-at)>5000||
+     issued>nowMs+60000)return unproven();
+  return {
+    status:"click_provenance_confirmed_pending_consent",
+    clicked_at:new Date(at).toISOString(),
+    provenance_verified:true,consent_eligible:false,
+    commission_created:false,can_send_postback:false,
   };
 }
 
@@ -110,7 +123,18 @@ export function createStagingTrustedReferralLookup({
       ]);
       if(links.length!==1||brands.length!==1)
         return {status:"blocked",reason:"link_or_brand_missing",consent_eligible:false,commission_created:false};
-      return classifyTrustedReferral({click,link:links[0],brand:brands[0],shop,nowMs:now()});
+      // The protected issuance table must be deployed and readable only with
+      // the server-side credential. A missing table/row/error rejects proof.
+      const issuances=await rows("affiliate_click_issuances",
+        "click_id,link_id,creator_id,brand_id,issued_at,issuer",
+        "click_id",clickId);
+      if(issuances.length!==1)return {
+        status:"click_record_found_unproven",reason:"server_issuance_not_attested",
+        provenance_verified:false,consent_eligible:false,
+        commission_created:false,can_send_postback:false,
+      };
+      return classifyTrustedReferral({click,link:links[0],brand:brands[0],
+        issuance:issuances[0],shop,nowMs:now()});
     }catch{
       return {status:"blocked",reason:"trusted_lookup_unavailable",consent_eligible:false,commission_created:false};
     }
