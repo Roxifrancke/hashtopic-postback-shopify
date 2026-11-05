@@ -8,6 +8,7 @@ on:
       - 'web/backend/staging-order-postback-quarantine.js'
       - 'web/backend/webhooks/index.js'
       - 'web/backend/retry-worker.js'
+      - 'web/backend/index.js'
       - 'web/backend/routes/deliveries.js'
       - 'web/tests/staging-order-postback-quarantine.test.js'
       - '.github/workflows/staging-postback-quarantine-tests.yml'
@@ -21,6 +22,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: node --check web/backend/index.js
       - run: node --check web/backend/webhooks/index.js
       - run: node --check web/backend/retry-worker.js
       - run: node --check web/backend/routes/deliveries.js
