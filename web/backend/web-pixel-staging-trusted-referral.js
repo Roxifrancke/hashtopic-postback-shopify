@@ -32,7 +32,7 @@ function canonicalShopDomain(value){
   } catch {return null;}
 }
 
-export function classifyTrustedReferral({click,link,brand,shop=TEST_SHOP,nowMs=Date.now()}={}){
+export function classifyTrustedReferral({click,link,brand,proof,shop=TEST_SHOP,nowMs=Date.now()}={}){
   const reject=reason=>({status:"blocked",reason,consent_eligible:false,commission_created:false});
   if(shop!==TEST_SHOP||!brand||brand.id!==TEST_BRAND ||
      ![brand.website_url,brand.store_url].some(x=>canonicalShopDomain(x)===shop))
@@ -45,14 +45,30 @@ export function classifyTrustedReferral({click,link,brand,shop=TEST_SHOP,nowMs=D
   const at=Date.parse(click.created_at);
   if(!Number.isFinite(nowMs)||!Number.isFinite(at)||at>nowMs+60000||
      nowMs-at>=WINDOW_MS)return reject("outside_referral_window");
-  // The existing affiliate_clicks table permits some anonymous inserts.
-  // A structurally valid row cannot prove that MyStorefront's trusted
-  // affiliate redirect issued it. Treat it as UNPROVEN until a separately
-  // authenticated, server-issued provenance record is available.
-  return {
+  // A matching row in affiliate_clicks is not itself proof: legacy RLS
+  // permits browser-issued clicks. Trust only the separately protected
+  // issuance ledger, written by the affiliate-redirect service-role RPC.
+  if (!proof) return {
     status:"click_record_found_unproven",
     reason:"server_issuance_not_attested",
     provenance_verified:false,
+    consent_eligible:false,commission_created:false,can_send_postback:false,
+  };
+  const issued=Date.parse(proof.issued_at);
+  // The proof is bound to the exact click, creator, brand and link.
+  // Timestamp proximity protects against a proof joined to a replaced row.
+  if (proof.click_id!==click.click_id||
+      proof.link_id!==click.link_id||
+      proof.creator_id!==click.creator_id||
+      proof.brand_id!==click.brand_id||
+      proof.issuer!=="affiliate-redirect"||
+      !Number.isFinite(issued)||
+      issued>nowMs+60000||
+      Math.abs(issued-at)>60000) return reject("server_issuance_proof_invalid");
+  return {
+    status:"click_record_verified_pending_consent",
+    clicked_at:click.created_at,
+    provenance_verified:true,
     consent_eligible:false,
     commission_created:false,
     can_send_postback:false,
@@ -104,13 +120,15 @@ export function createStagingTrustedReferralLookup({
       const click=clicks[0];
       if(click.brand_id!==TEST_BRAND||!UUID.test(click.link_id||""))
         return {status:"blocked",reason:"click_invalid",consent_eligible:false,commission_created:false};
-      const [links,brands]=await Promise.all([
+      const [links,brands,proofs]=await Promise.all([
         rows("links","id,user_id,is_deleted","id",click.link_id),
         rows("brand_accounts","id,website_url,store_url","id",TEST_BRAND),
+        rows("affiliate_click_proofs",
+          "click_id,link_id,creator_id,brand_id,issuer,issued_at","click_id",clickId),
       ]);
-      if(links.length!==1||brands.length!==1)
+      if(links.length!==1||brands.length!==1||proofs.length>1)
         return {status:"blocked",reason:"link_or_brand_missing",consent_eligible:false,commission_created:false};
-      return classifyTrustedReferral({click,link:links[0],brand:brands[0],shop,nowMs:now()});
+      return classifyTrustedReferral({click,link:links[0],brand:brands[0],proof:proofs[0]||null,shop,nowMs:now()});
     }catch{
       return {status:"blocked",reason:"trusted_lookup_unavailable",consent_eligible:false,commission_created:false};
     }
