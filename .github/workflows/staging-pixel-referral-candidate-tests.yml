@@ -1,0 +1,39 @@
+name: Staging pixel referral candidate tests
+on:
+  push:
+    branches:
+      - feature/staging-pixel-consented-referral-capture-20261105
+  pull_request:
+    paths:
+      - 'extensions/mystorefront-staging-pixel/src/**'
+      - 'extensions/mystorefront-staging-pixel/package*.json'
+      - 'web/tests/staging-pixel-referral-candidate.test.js'
+      - 'web/backend/web-pixel-staging-paid-review.js'
+      - 'web/tests/web-pixel-staging-paid-review.test.js'
+      - '.github/workflows/staging-pixel-referral-candidate-tests.yml'
+permissions:
+  contents: read
+jobs:
+  candidate-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax-check staging pixel modules
+        run: |
+          node --check extensions/mystorefront-staging-pixel/src/index.js
+          node --check extensions/mystorefront-staging-pixel/src/referral-candidate.js
+      - name: Run consent and validation unit tests
+        run: node --test web/tests/staging-pixel-referral-candidate.test.js
+      - name: Test read-only paid-order referral reconciliation
+        run: node --test web/tests/web-pixel-staging-paid-review.test.js
+      - name: Install extension dependencies
+        run: npm ci --prefix extensions/mystorefront-staging-pixel --no-audit --no-fund
+      - name: Bundle Shopify strict-sandbox pixel entry and verify probe
+        run: |
+          npx --yes --package esbuild@0.25.12 esbuild extensions/mystorefront-staging-pixel/src/index.js --bundle --platform=browser --format=iife --outfile=/tmp/mystorefront-staging-pixel-ci.js
+          test -s /tmp/mystorefront-staging-pixel-ci.js
+          grep -q 'web-pixel-transport-probe' /tmp/mystorefront-staging-pixel-ci.js
+          grep -q 'mystorefront_staging_unverified_click_v1' /tmp/mystorefront-staging-pixel-ci.js

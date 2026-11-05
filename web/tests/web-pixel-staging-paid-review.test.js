@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHmac} from "node:crypto";
-import {assessReadOnlyPixelPaidOrder,verifyStagingPaidWebhook} from "../backend/web-pixel-staging-paid-review.js";
+import {assessReadOnlyPixelPaidOrder,verifyStagingPaidWebhook,classifyOrderReferralEvidence} from "../backend/web-pixel-staging-paid-review.js";
 
 const shop="mystorefront-test.myshopify.com";
 const secret="fake-staging-webhook-secret-at-least-thirty-two-characters";
@@ -88,7 +88,12 @@ test("paid order requires the identical proven click present in independent Shop
       ...inputs(),fetchShopifyOrder:async()=>({...order,...variant}),
     });
     assert.equal(decision.status,"blocked");
-    assert.equal(decision.reason,"order_referral_mismatch");
+    const expectedReason = variant.note_attributes.length === 0
+      ? "order_referral_missing"
+      : variant.note_attributes[0].value === ""
+        ? "order_referral_invalid"
+        : "order_referral_mismatch";
+    assert.equal(decision.reason,expectedReason);
     assert.equal(decision.commission_created,false);
     assert.equal(decision.can_send_postback,false);
   }
@@ -133,4 +138,50 @@ test("accelerated checkout line item referral can match a paid order",async()=>{
   assert.equal(decision.status,"verified_order_and_click_pending_consent");
   assert.equal(decision.consent_eligible,false);
   assert.equal(decision.can_send_postback,false);
+});
+
+test("read-only staging rejects contradictory referral evidence across cart and line items",async()=>{
+  const conflicting={...order,line_items:[{properties:[
+    {name:"_MyStorefront click_id",value:"99999999-9999-4999-8999-999999999999"}
+  ]}]};
+  assert.deepEqual(classifyOrderReferralEvidence(conflicting),{
+    status:"blocked",reason:"order_referral_conflict"
+  });
+  const result=await assessReadOnlyPixelPaidOrder({
+    ...inputs(),fetchShopifyOrder:async()=>conflicting
+  });
+  assert.equal(result.status,"blocked");
+  assert.equal(result.reason,"order_referral_conflict");
+  assert.equal(result.commission_created,false);
+  assert.equal(result.can_send_postback,false);
+});
+
+test("staging rejects malformed and conflicting signed webhook referral evidence",async()=>{
+  for(const attrs of [
+    [{name:"MyStorefront click_id",value:"not-a-uuid"}],
+    [{name:"MyStorefront click_id",value:candidate.click_id},
+     {name:"click_id",value:"99999999-9999-4999-8999-999999999999"}],
+  ]){
+    const body=Buffer.from(JSON.stringify({id:123456789,financial_status:"paid",
+      cancelled_at:null,note_attributes:attrs}));
+    const decision=await assessReadOnlyPixelPaidOrder({
+      ...inputs(),webhook:{...webhook,rawBody:body,
+        hmac:createHmac("sha256",secret).update(body).digest("base64")}
+    });
+    assert.equal(decision.status,"blocked");
+    assert.equal(decision.reason,"webhook_referral_conflict_or_invalid");
+  }
+});
+
+test("consistent referral evidence from multiple placements remains eligible only for read-only review",async()=>{
+  const same={...order,line_items:[{properties:[
+    {name:"_MyStorefront click_id",value:candidate.click_id.toUpperCase()}
+  ]}]};
+  assert.equal(classifyOrderReferralEvidence(same).status,"consistent");
+  const decision=await assessReadOnlyPixelPaidOrder({
+    ...inputs(),fetchShopifyOrder:async()=>same
+  });
+  assert.equal(decision.status,"verified_order_and_click_pending_consent");
+  assert.equal(decision.can_send_postback,false);
+  assert.equal(decision.commission_created,false);
 });
