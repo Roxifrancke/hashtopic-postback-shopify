@@ -7,6 +7,7 @@ on:
     paths:
       - 'web/backend/staging-order-postback-quarantine.js'
       - 'web/backend/webhooks/index.js'
+      - 'web/backend/retry-worker.js'
       - 'web/tests/staging-order-postback-quarantine.test.js'
       - '.github/workflows/staging-postback-quarantine-tests.yml'
 permissions:
@@ -20,4 +21,5 @@ jobs:
         with:
           node-version: '22'
       - run: node --check web/backend/webhooks/index.js
+      - run: node --check web/backend/retry-worker.js
       - run: node --test web/tests/staging-order-postback-quarantine.test.js
