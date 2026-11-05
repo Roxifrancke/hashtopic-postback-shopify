@@ -54,7 +54,10 @@ export async function captureStagingCandidate({ href, privacy, storage, nowMs })
     const candidate = createCandidate(clickId, nowMs);
     if (!candidate) return 'invalid_time';
     await storage.setItem(REFERRAL_STORAGE_KEY, candidate);
-    return 'stored_unverified';
+    // Verify storage in the strict pixel sandbox without transmitting click IDs.
+    const readBack = await storage.getItem(REFERRAL_STORAGE_KEY);
+    return readBack === candidate && isCurrentCandidate(readBack, nowMs)
+      ? 'stored_verified_local' : 'storage_readback_failed';
   }
   const raw = await storage.getItem(REFERRAL_STORAGE_KEY);
   if (raw && !isCurrentCandidate(raw, nowMs)) {
