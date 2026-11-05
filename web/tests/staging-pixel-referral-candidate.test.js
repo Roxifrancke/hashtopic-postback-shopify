@@ -86,3 +86,27 @@ test('DevTools diagnostic reveals status only, never the referral identifier', (
   assert.match(pixel, /referral_storage_status=/);
   assert.doesNotMatch(pixel, /console\.(?:log|info|warn|error)\([^\n]*(?:clickId|click_id|urlSnapshot|lastPageUrl)/);
 });
+
+test('retain verified local candidate when navigating without query parameter', async () => {
+  const s = storage();
+  const first = await captureStagingCandidate({
+    href: 'https://mystorefront-test.myshopify.com/?click_id=' + click,
+    privacy, storage: s, nowMs: now,
+  });
+  assert.equal(first, 'stored_verified_local');
+  const original = s.data.get(REFERRAL_STORAGE_KEY);
+  const next = await captureStagingCandidate({
+    href: 'https://mystorefront-test.myshopify.com/collections/all',
+    privacy, storage: s, nowMs: now + 1000,
+  });
+  assert.equal(next, 'retained_verified_local');
+  assert.equal(s.data.get(REFERRAL_STORAGE_KEY), original);
+});
+
+test('visit without any referral reports no_referral', async () => {
+  const result = await captureStagingCandidate({
+    href: 'https://mystorefront-test.myshopify.com/products/a',
+    privacy, storage: storage(), nowMs: now,
+  });
+  assert.equal(result, 'no_referral');
+});
