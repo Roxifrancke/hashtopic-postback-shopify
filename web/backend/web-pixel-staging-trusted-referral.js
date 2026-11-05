@@ -33,7 +33,7 @@ function canonicalShopDomain(value){
 }
 
 export function classifyTrustedReferral({click,link,brand,proof,shop=TEST_SHOP,nowMs=Date.now()}={}){
-  const reject=reason=>({status:"blocked",reason,consent_eligible:false,commission_created:false});
+  const reject=reason=>({status:"blocked",reason,provenance_verified:false,consent_eligible:false,commission_created:false,can_send_postback:false});
   if(shop!==TEST_SHOP||!brand||brand.id!==TEST_BRAND ||
      ![brand.website_url,brand.store_url].some(x=>canonicalShopDomain(x)===shop))
     return reject("brand_shop_mismatch");
