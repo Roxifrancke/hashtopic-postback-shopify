@@ -11,6 +11,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Install test dependencies
+        run: npm install --no-audit --no-fund
       - name: Run staging tests
         working-directory: web
         run: npm test
