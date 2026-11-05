@@ -8,6 +8,8 @@ on:
       - 'extensions/mystorefront-staging-pixel/src/**'
       - 'extensions/mystorefront-staging-pixel/package*.json'
       - 'web/tests/staging-pixel-referral-candidate.test.js'
+      - 'web/backend/web-pixel-staging-paid-review.js'
+      - 'web/tests/web-pixel-staging-paid-review.test.js'
       - '.github/workflows/staging-pixel-referral-candidate-tests.yml'
 permissions:
   contents: read
@@ -25,6 +27,8 @@ jobs:
           node --check extensions/mystorefront-staging-pixel/src/referral-candidate.js
       - name: Run consent and validation unit tests
         run: node --test web/tests/staging-pixel-referral-candidate.test.js
+      - name: Test read-only paid-order referral reconciliation
+        run: node --test web/tests/web-pixel-staging-paid-review.test.js
       - name: Install extension dependencies
         run: npm ci --prefix extensions/mystorefront-staging-pixel --no-audit --no-fund
       - name: Bundle Shopify strict-sandbox pixel entry and verify probe
