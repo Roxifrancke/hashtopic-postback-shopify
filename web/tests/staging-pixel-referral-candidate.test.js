@@ -126,7 +126,7 @@ test('checkout read-only inspection sees retained unverified referral without se
 
 test('checkout pixel diagnostic does not transmit checkout or referral identifiers',()=>{
   const pixel=readFileSync(new URL('../../extensions/mystorefront-staging-pixel/src/index.js',import.meta.url),'utf8');
-  assert.match(pixel, /analytics\\.subscribe\\('checkout_started'/);
+  assert.ok(pixel.includes("analytics.subscribe('checkout_started'"));
   assert.match(pixel,/checkout_referral_status=/);
   assert.doesNotMatch(pixel,/checkout_completed|checkout\\.token|checkout\\.order|sendBeacon/);
 });
