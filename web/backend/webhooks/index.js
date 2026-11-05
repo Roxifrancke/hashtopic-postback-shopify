@@ -1,4 +1,5 @@
 import { getValidAccessToken } from "../shopify-auth.js";
+import { isStagingOrderQuarantineEnabled } from "../staging-order-postback-quarantine.js";
 import {
   getSettings,
   upsertDelivery,
@@ -21,6 +22,8 @@ import {
 const MAX_RETRY = MAX_ATTEMPTS;
 
 async function processOrder(shop, order) {
+  // Staging-only kill switch. Must happen before any delivery or postback write.
+  if (isStagingOrderQuarantineEnabled(shop)) return;
   const settings = await getSettings(shop);
   if (!settings?.webhook_url) {
     console.log(`[MS] No webhook URL configured for ${shop}, skipping.`);
@@ -138,6 +141,8 @@ async function fetchOrder(shop, orderId, shopify) {
 }
 
 async function processRefund(shop, refund, shopify) {
+  // Staging-only kill switch. Must happen before any delivery or postback write.
+  if (isStagingOrderQuarantineEnabled(shop)) return;
   const settings = await getSettings(shop);
   if (!settings?.webhook_url) {
     throw new Error(`Refund cannot be processed: webhook URL not configured for ${shop}`);
