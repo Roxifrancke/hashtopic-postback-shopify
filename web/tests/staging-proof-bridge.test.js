@@ -52,6 +52,8 @@ test("forged eligibility, malformed response, HTTP failure and network errors fa
     {ok:true,json:async()=>({...verified,provenance_verified:false})},
     {ok:true,json:async()=>({...verified,commission_created:true})},
     {ok:true,json:async()=>({...verified,clicked_at:"not-a-date"})},
+    {ok:true,json:async()=>({...verified,clicked_at:"2026-08-01T00:00:00Z"})},
+    {ok:true,json:async()=>({...verified,clicked_at:"2099-01-01T00:00:00Z"})},
     {ok:false,json:async()=>verified},
   ];
   for(const response of cases){
