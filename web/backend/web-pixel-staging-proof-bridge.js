@@ -12,7 +12,7 @@ const blocked = (reason) => ({
 });
 
 export function createStagingProofBridgeLookup({
-  endpoint,token,fetchImpl=fetch,
+  endpoint,token,fetchImpl=fetch,now=()=>Date.now(),
 }={}) {
   let url;
   try {
@@ -48,7 +48,10 @@ export function createStagingProofBridgeLookup({
          result.can_send_postback===false &&
          result.commission_created===false &&
          typeof result.clicked_at==="string" &&
-         Number.isFinite(Date.parse(result.clicked_at)))
+         Number.isFinite(Date.parse(result.clicked_at)) &&
+         Number.isFinite(now()) &&
+         Date.parse(result.clicked_at)<=now()+60000 &&
+         now()-Date.parse(result.clicked_at)<30*86400000)
         return {
           status:"click_record_verified_pending_consent",
           clicked_at:result.clicked_at,
