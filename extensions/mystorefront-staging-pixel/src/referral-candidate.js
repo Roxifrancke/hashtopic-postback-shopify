@@ -64,5 +64,8 @@ export async function captureStagingCandidate({ href, privacy, storage, nowMs })
     await storage.removeItem(REFERRAL_STORAGE_KEY);
     return 'expired_or_invalid';
   }
-  return 'no_referral';
+  // A subsequent page without click_id must distinguish a retained
+  // candidate from a visit that has never received a referral.
+  // Never expose or transmit the stored click ID through diagnostics.
+  return raw ? 'retained_verified_local' : 'no_referral';
 }
