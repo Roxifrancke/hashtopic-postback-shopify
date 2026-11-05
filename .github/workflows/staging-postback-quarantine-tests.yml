@@ -1,0 +1,23 @@
+name: Staging Shopify postback quarantine checks
+on:
+  push:
+    branches:
+      - feature/staging-order-postback-quarantine-20261105
+  pull_request:
+    paths:
+      - 'web/backend/staging-order-postback-quarantine.js'
+      - 'web/backend/webhooks/index.js'
+      - 'web/tests/staging-order-postback-quarantine.test.js'
+      - '.github/workflows/staging-postback-quarantine-tests.yml'
+permissions:
+  contents: read
+jobs:
+  staging-quarantine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check web/backend/webhooks/index.js
+      - run: node --test web/tests/staging-order-postback-quarantine.test.js
