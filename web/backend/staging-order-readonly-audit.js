@@ -13,7 +13,7 @@ const AUDIT_ORDER = "7275644289089"; // existing Shopify test order #1088
 const BRIDGE_ENDPOINT = "https://lhzqnkrjqaebcfxcmlgd.supabase.co/functions/v1/staging-referral-proof-verify";
 const API_VERSION = "2026-10";
 const ORDER_ID = /^[1-9][0-9]{0,19}$/;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const safe = (status, extra={}) => ({
   status,
   paid:false, order_referral_present:false,
