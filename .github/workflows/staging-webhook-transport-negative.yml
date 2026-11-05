@@ -1,0 +1,42 @@
+name: Staging webhook nonpayable transport check
+
+on:
+  pull_request:
+    branches: [staging]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reject-unsigned-webhook:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Warm staging health endpoint
+        run: |
+          curl --fail --silent --show-error --max-time 30 \
+            --retry 3 --retry-delay 5 \
+            https://hashtopic-postback-shopify-staging.onrender.com/health
+
+      - name: Check unsigned nonpayable webhook is rejected
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This is NOT a Shopify-originated webhook. It intentionally lacks
+          # the Shopify HMAC header and MUST be rejected before order processing.
+          # No click ID, order ID, customer data, or commission is supplied.
+          code="$(curl --silent --show-error --max-time 25 \
+            -o /dev/null -w '%{http_code}' \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            -H 'X-Shopify-Topic: orders/paid' \
+            -H 'X-Shopify-Shop-Domain: mystorefront-test.myshopify.com' \
+            --data '{}' \
+            https://hashtopic-postback-shopify-staging.onrender.com/api/webhooks)"
+          echo "Staging unsigned webhook HTTP status: ${code}"
+          if [ "${code}" != "401" ]; then
+            echo "FAIL: unsigned webhook was not rejected with HTTP 401"
+            exit 1
+          fi
+          echo "PASS: staging endpoint reachable and rejects unsigned webhook"
