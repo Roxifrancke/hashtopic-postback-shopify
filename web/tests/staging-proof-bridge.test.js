@@ -7,6 +7,7 @@ const endpoint="https://lhzqnkrjqaebcfxcmlgd.supabase.co/functions/v1/staging-re
 const token="local-only-test-token-example-000000000000000000000000";
 const clickId="11111111-1111-4111-8111-111111111111";
 const shop="mystorefront-test.myshopify.com";
+const fixedNow=()=>Date.parse("2026-11-05T06:00:00Z");
 const verified={
   status:"click_record_verified_pending_consent",
   clicked_at:"2026-11-05T05:00:00Z",
@@ -32,7 +33,7 @@ test("bridge client accepts only the designated Supabase function",()=>{
 });
 test("only a fully consent-blocked proven referral is accepted",async()=>{
   const calls=[];
-  const lookup=createStagingProofBridgeLookup({endpoint,token,fetchImpl:async(url,req)=>{
+  const lookup=createStagingProofBridgeLookup({endpoint,token,now:fixedNow,fetchImpl:async(url,req)=>{
     calls.push({url,req});
     return {ok:true,json:async()=>verified};
   }});
@@ -57,7 +58,7 @@ test("forged eligibility, malformed response, HTTP failure and network errors fa
     {ok:false,json:async()=>verified},
   ];
   for(const response of cases){
-    const lookup=createStagingProofBridgeLookup({endpoint,token,fetchImpl:async()=>response});
+    const lookup=createStagingProofBridgeLookup({endpoint,token,now:fixedNow,fetchImpl:async()=>response});
     const result=await lookup({shop,clickId});
     assert.equal(result.status,"blocked");
     assert.equal(result.can_send_postback,false);
