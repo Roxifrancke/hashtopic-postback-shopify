@@ -70,7 +70,7 @@ test("server-only lookup finds linked click but does not certify provenance",asy
   assert.equal(result.provenance_verified,false);
   assert.equal(result.consent_eligible,false);
   assert.equal(result.commission_created,false);
-  assert.equal(m.calls.length,3);
+  assert.equal(m.calls.length,4);
   assert.ok(m.calls.every(x=>!x.url.includes(key)));
 });
 
