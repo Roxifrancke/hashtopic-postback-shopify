@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { isStagingOrderQuarantineEnabled } from "../staging-order-postback-quarantine.js";
 import {
   getDeliveriesForShop,
   getDeliveryById,
@@ -32,6 +33,9 @@ export default function deliveriesRouter(shopify) {
   router.post("/:id/retry", async (req, res) => {
     try {
       const shop = res.locals.shopify.session.shop;
+      // Do not reset/replay a quarantined staging delivery from the dashboard.
+      if (isStagingOrderQuarantineEnabled(shop))
+        return res.status(423).json({ error: "Staging order postback quarantine is active." });
       const delivery = await getDeliveryById(Number(req.params.id));
 
       if (!delivery || delivery.shop !== shop) {
