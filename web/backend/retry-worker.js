@@ -1,4 +1,5 @@
 import cron from "node-cron";
+import { isStagingOrderQuarantineEnabled } from "./staging-order-postback-quarantine.js";
 import {
   getPendingRetries,
   claimDelivery,
@@ -40,6 +41,9 @@ export function startRetryWorker() {
 }
 
 async function retryDelivery(delivery) {
+  // Prevent old staging delivery records from sending commissions while test
+  // order quarantine is active. Do not claim or mutate the delivery.
+  if (isStagingOrderQuarantineEnabled(delivery?.shop)) return;
   const claimed = await claimDelivery(delivery.id, MAX_ATTEMPTS);
   if (!claimed) return;
   delivery = claimed;
