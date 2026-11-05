@@ -42,3 +42,11 @@ test("staging retry worker checks quarantine before claiming queued deliveries",
   assert.ok(retry.indexOf("isStagingOrderQuarantineEnabled(delivery?.shop)") <
     retry.indexOf("claimDelivery("));
 });
+
+test("manual delivery retry is blocked before reset while quarantine is enabled", () => {
+  const source = readFileSync(new URL("../backend/routes/deliveries.js",import.meta.url),"utf8");
+  const route = source.slice(source.indexOf('router.post("/:id/retry"'));
+  assert.match(route,/isStagingOrderQuarantineEnabled\(shop\)/);
+  assert.ok(route.indexOf("isStagingOrderQuarantineEnabled(shop)") <
+    route.indexOf("resetDeliveryForRetry(delivery.id)"));
+});
