@@ -6,6 +6,7 @@ on:
   pull_request:
     paths:
       - 'extensions/mystorefront-staging-pixel/src/**'
+      - 'extensions/mystorefront-staging-pixel/package*.json'
       - 'web/tests/staging-pixel-referral-candidate.test.js'
       - '.github/workflows/staging-pixel-referral-candidate-tests.yml'
 permissions:
@@ -24,3 +25,11 @@ jobs:
           node --check extensions/mystorefront-staging-pixel/src/referral-candidate.js
       - name: Run consent and validation unit tests
         run: node --test web/tests/staging-pixel-referral-candidate.test.js
+      - name: Install extension dependencies
+        run: npm ci --prefix extensions/mystorefront-staging-pixel --no-audit --no-fund
+      - name: Bundle Shopify strict-sandbox pixel entry and verify probe
+        run: |
+          npx --yes --package esbuild@0.25.12 esbuild extensions/mystorefront-staging-pixel/src/index.js --bundle --platform=browser --format=iife --outfile=/tmp/mystorefront-staging-pixel-ci.js
+          test -s /tmp/mystorefront-staging-pixel-ci.js
+          grep -q 'web-pixel-transport-probe' /tmp/mystorefront-staging-pixel-ci.js
+          grep -q 'mystorefront_staging_unverified_click_v1' /tmp/mystorefront-staging-pixel-ci.js
