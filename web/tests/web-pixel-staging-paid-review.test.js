@@ -88,7 +88,12 @@ test("paid order requires the identical proven click present in independent Shop
       ...inputs(),fetchShopifyOrder:async()=>({...order,...variant}),
     });
     assert.equal(decision.status,"blocked");
-    assert.equal(decision.reason,"order_referral_mismatch");
+    const expectedReason = variant.note_attributes.length === 0
+      ? "order_referral_missing"
+      : variant.note_attributes[0].value === ""
+        ? "order_referral_invalid"
+        : "order_referral_mismatch";
+    assert.equal(decision.reason,expectedReason);
     assert.equal(decision.commission_created,false);
     assert.equal(decision.can_send_postback,false);
   }
