@@ -43,7 +43,7 @@ test('store only an explicitly untrusted local candidate, no network transmissio
   const s = storage();
   const status = await captureStagingCandidate({ href: 'https://mystorefront-test.myshopify.com/?click_id=' + click,
     privacy, storage: s, nowMs: now });
-  assert.equal(status, 'stored_unverified');
+  assert.equal(status, 'stored_verified_local');
   const value = JSON.parse(s.data.get(REFERRAL_STORAGE_KEY));
   assert.equal(value.click_id, click);
   assert.equal(value.trusted, false);
@@ -69,4 +69,20 @@ test('staging pixel does not send the candidate or initiate conversion processin
   assert.match(pixel, /analytics\.subscribe\('page_viewed'/);
   assert.doesNotMatch(pixel, /checkout_completed|orders\/paid|affiliate-postback|sendBeacon/);
   assert.doesNotMatch(pixel, /body\s*:/);
+});
+
+test('report storage readback mismatch without claiming verification', async () => {
+  const s = storage();
+  s.getItem = async () => null;
+  const result = await captureStagingCandidate({
+    href: 'https://mystorefront-test.myshopify.com/?click_id=' + click,
+    privacy, storage: s, nowMs: now,
+  });
+  assert.equal(result, 'storage_readback_failed');
+});
+
+test('DevTools diagnostic reveals status only, never the referral identifier', () => {
+  const pixel = readFileSync(new URL('../../extensions/mystorefront-staging-pixel/src/index.js', import.meta.url), 'utf8');
+  assert.match(pixel, /referral_storage_status=/);
+  assert.doesNotMatch(pixel, /console\.(?:log|info|warn|error)\([^\n]*(?:clickId|click_id|urlSnapshot|lastPageUrl)/);
 });
