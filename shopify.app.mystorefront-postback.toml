@@ -1,8 +1,7 @@
-# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
-
-client_id = "80133e649bd215aa494b9e54f91aa0f3"
-name = "MyStorefront Postback"
-application_url = "https://mystorefront-postback.onrender.com"
+# STAGING-ONLY Shopify app configuration. Never deploy this with the production app.
+client_id = "2f3aa895637da2cc63111d4922a5dd17"
+name = "MyStorefront Postback Staging"
+application_url = "https://hashtopic-postback-shopify-staging.onrender.com"
 embedded = true
 
 [webhooks]
@@ -13,17 +12,16 @@ api_version = "2025-04"
   uri = "/api/webhooks"
 
   [webhooks.privacy_compliance]
-  customer_deletion_url = "https://mystorefront-postback.onrender.com/api/webhooks/gdpr/customers_redact"
-  customer_data_request_url = "https://mystorefront-postback.onrender.com/api/webhooks/gdpr/customers_data_request"
-  shop_deletion_url = "https://mystorefront-postback.onrender.com/api/webhooks/gdpr/shop_redact"
+  customer_deletion_url = "https://hashtopic-postback-shopify-staging.onrender.com/api/webhooks/gdpr/customers_redact"
+  customer_data_request_url = "https://hashtopic-postback-shopify-staging.onrender.com/api/webhooks/gdpr/customers_data_request"
+  shop_deletion_url = "https://hashtopic-postback-shopify-staging.onrender.com/api/webhooks/gdpr/shop_redact"
 
 [access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_orders,read_customers,read_price_rules,write_price_rules"
-optional_scopes = [ ]
+scopes = "read_orders,read_customers,read_price_rules,write_price_rules,write_pixels,read_customer_events"
+optional_scopes = []
 use_legacy_install_flow = false
 
 [auth]
 redirect_urls = [
-  "https://mystorefront-postback.onrender.com/api/auth/callback"
+  "https://hashtopic-postback-shopify-staging.onrender.com/api/auth/callback"
 ]
