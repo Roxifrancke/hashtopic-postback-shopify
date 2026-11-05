@@ -45,6 +45,7 @@ import settingsRouter from "./routes/settings.js";
 import deliveriesRouter from "./routes/deliveries.js";
 import webhookHandlers from "./webhooks/index.js";
 import { startRetryWorker } from "./retry-worker.js";
+import { runStagingProofStartupOnce } from "./staging-proof-startup.js";
 import { pixelScriptRouter } from "./routes/pixel-script.js";
 import discountCodesRouter from "./routes/discount-codes.js";
 import cors from "cors";
@@ -512,6 +513,8 @@ app.use("/*", tokenExchangeMiddleware, async (_req, res) => {
 app.listen(PORT, () => {
   console.log(`MyStorefront Postback app listening on port ${PORT}`);
   startRetryWorker();
+  // Staging diagnostic, opt-in only; never impacts startup or postbacks.
+  void runStagingProofStartupOnce();
 });
 
 export default shopify;
