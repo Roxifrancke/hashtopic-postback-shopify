@@ -13,6 +13,9 @@ test('Shopify CLI app config must target the isolated staging identity only', ()
   assert.doesNotMatch(app, /https:\/\/mystorefront-postback\.onrender\.com/);
   assert.match(app, /write_pixels/);
   assert.match(app, /read_customer_events/);
+  assert.match(app, /api_version = "2027-01"/);
+  assert.match(app, /topics = \["orders\/paid", "refunds\/create"\]/);
+  for (const scope of ['read_discounts','read_products','read_script_tags','read_themes','write_orders','write_script_tags','write_themes']) assert.ok(app.includes(scope));
 });
 
 test('Pixel prototype sends only an empty probe to the staging endpoint', () => {
