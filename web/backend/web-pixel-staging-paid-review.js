@@ -7,6 +7,7 @@
  * candidate cannot become a payable sale.
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { extractClickId } from "./postback-sender.js";
 
 const SHOP="mystorefront-test.myshopify.com";
 const ORDER_RE=/^(?:gid:\/\/shopify\/Order\/)?([1-9][0-9]{0,19})$/;
@@ -77,6 +78,21 @@ export async function assessReadOnlyPixelPaidOrder({
   if(order?.shop!==SHOP||normalizeOrderId(order?.id)!==orderId||
      order?.financial_status!=="paid"||order?.cancelled_at)
     return blocked("shopify_order_not_paid_or_mismatched");
+  // A candidate click must be present on the independently fetched Shopify
+  // order. Never join a genuine creator click to an unrelated paid order.
+  const orderClickId=extractClickId(order);
+  if(!orderClickId || orderClickId!==candidate.click_id)
+    return blocked("order_referral_mismatch");
+
+  // When the signed webhook carries a click ID, it must agree as well.
+  // Absence in the webhook does not override the Admin order's evidence.
+  let webhookOrder;
+  try{webhookOrder=JSON.parse(webhook.rawBody.toString("utf8"))}catch{
+    return blocked("webhook_json_invalid");
+  }
+  const webhookClickId=extractClickId(webhookOrder);
+  if(webhookClickId && webhookClickId!==orderClickId)
+    return blocked("webhook_referral_mismatch");
   const ordered=Date.parse(order.created_at);
   const clicked=Date.parse(click?.clicked_at);
   if(!Number.isFinite(nowMs)||!Number.isFinite(ordered)||
@@ -85,6 +101,8 @@ export async function assessReadOnlyPixelPaidOrder({
     return blocked("invalid_click_to_order_window");
   if(exists!==false)return blocked("existing_or_unknown_legacy_delivery");
   if(click?.status!=="click_record_verified_pending_consent"||
+     click?.provenance_verified!==true||
+     click?.consent_eligible!==false||
      click?.commission_created!==false||click?.can_send_postback!==false||
      !Number.isFinite(clicked))
     return blocked("trusted_referral_not_confirmed");
