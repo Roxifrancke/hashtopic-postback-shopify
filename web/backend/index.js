@@ -46,6 +46,7 @@ import deliveriesRouter from "./routes/deliveries.js";
 import webhookHandlers from "./webhooks/index.js";
 import { startRetryWorker } from "./retry-worker.js";
 import { runStagingProofStartupOnce } from "./staging-proof-startup.js";
+import { runStagingOrderAuditAtStartupOnce } from "./staging-order-readonly-audit.js";
 import { pixelScriptRouter } from "./routes/pixel-script.js";
 import discountCodesRouter from "./routes/discount-codes.js";
 import cors from "cors";
@@ -515,6 +516,20 @@ app.listen(PORT, () => {
   startRetryWorker();
   // Staging diagnostic, opt-in only; never impacts startup or postbacks.
   void runStagingProofStartupOnce();
+  // One-shot read-only diagnosis of existing test order. Requires explicit
+  // staging-only flags and never creates or retries a delivery.
+  void runStagingOrderAuditAtStartupOnce({
+    dependencies:{
+      getToken:shop=>getShopifyTokenSet(shop),
+      queryDelivery:async(shop,orderId)=>{
+        const result=await db.query(
+          "SELECT EXISTS(SELECT 1 FROM deliveries WHERE shop=$1 AND order_id=$2) AS present",
+          [shop,orderId],
+        );
+        return result.rows?.[0]?.present;
+      }
+    }
+  });
 });
 
 export default shopify;
