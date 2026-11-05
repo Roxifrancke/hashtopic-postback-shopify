@@ -3,7 +3,7 @@
  * Candidate is never transmitted, authenticated, or used for attribution.
  */
 import { register } from '@shopify/web-pixels-extension';
-import { captureStagingCandidate, REFERRAL_STORAGE_KEY, consentAllowsReferral } from './referral-candidate.js';
+import { captureStagingCandidate, inspectStagingCheckoutCandidate, REFERRAL_STORAGE_KEY, consentAllowsReferral } from './referral-candidate.js';
 
 const STAGING_HOST = 'https://hashtopic-postback-shopify-staging.onrender.com';
 const PROBE = STAGING_HOST + '/api/staging/web-pixel-transport-probe/';
@@ -42,6 +42,21 @@ register(({ analytics, browser, init, customerPrivacy }) => {
         browser.localStorage.removeItem(REFERRAL_STORAGE_KEY));
       pending.catch(() => {});
     }
+  });
+
+  // Read-only observation. Shopify pixel sandbox cannot attach a browser
+  // candidate to a cart/order. Never log or transmit checkout/customer data.
+  analytics.subscribe('checkout_started', () => {
+    const consentSnapshot = privacy;
+    pending = pending.catch(() => {}).then(() => inspectStagingCheckoutCandidate({
+      privacy: consentSnapshot,
+      storage: browser.localStorage,
+      nowMs: Date.now(),
+    })).then(status => {
+      console.info('[MyStorefront staging pixel] checkout_referral_status=' + status);
+      return status;
+    });
+    pending.catch(() => {});
   });
 
   analytics.subscribe('page_viewed', (event) => {
