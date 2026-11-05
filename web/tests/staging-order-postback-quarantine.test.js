@@ -34,3 +34,11 @@ test("the legacy paid and refund handlers check quarantine before settings or de
   assert.ok(paid.indexOf("isStagingOrderQuarantineEnabled(shop)") < paid.indexOf("upsertDelivery("));
   assert.ok(refund.indexOf("isStagingOrderQuarantineEnabled(shop)") < refund.indexOf("upsertDelivery("));
 });
+
+test("staging retry worker checks quarantine before claiming queued deliveries", () => {
+  const source = readFileSync(new URL("../backend/retry-worker.js", import.meta.url), "utf8");
+  const retry = source.slice(source.indexOf("async function retryDelivery("));
+  assert.match(retry,/if \(isStagingOrderQuarantineEnabled\(delivery\?\.shop\)\) return;/);
+  assert.ok(retry.indexOf("isStagingOrderQuarantineEnabled(delivery?.shop)") <
+    retry.indexOf("claimDelivery("));
+});
