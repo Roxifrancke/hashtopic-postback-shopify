@@ -69,3 +69,21 @@ export async function captureStagingCandidate({ href, privacy, storage, nowMs })
   // Never expose or transmit the stored click ID through diagnostics.
   return raw ? 'retained_verified_local' : 'no_referral';
 }
+
+/**
+ * Inspect checkout readiness locally, never send a pixel-generated
+ * candidate or checkout identifier to a server. This cannot prove order
+ * attribution or customer consent for a downstream paid-order decision.
+ */
+export async function inspectStagingCheckoutCandidate({privacy,storage,nowMs}) {
+  if (!consentAllowsReferral(privacy)) return 'consent_denied';
+  if (!storage || typeof storage.getItem !== 'function' ||
+      typeof storage.removeItem !== 'function') return 'storage_unavailable';
+  const raw = await storage.getItem(REFERRAL_STORAGE_KEY);
+  if (!raw) return 'no_referral';
+  if (!isCurrentCandidate(raw,nowMs)) {
+    await storage.removeItem(REFERRAL_STORAGE_KEY);
+    return 'expired_or_invalid';
+  }
+  return 'present_unverified';
+}
