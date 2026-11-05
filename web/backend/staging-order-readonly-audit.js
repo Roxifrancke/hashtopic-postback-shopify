@@ -9,7 +9,7 @@ import { createStagingProofBridgeLookup } from "./web-pixel-staging-proof-bridge
 const HOST = "https://hashtopic-postback-shopify-staging.onrender.com";
 const SHOP = "mystorefront-test.myshopify.com";
 const DB = "/mystorefront_postback_staging_db";
-const AUDIT_ORDER = "7275644289089"; // existing Shopify test order #1088
+const AUDIT_ORDER = "7276986433601"; // Shopify Bogus Gateway test order #1091
 const BRIDGE_ENDPOINT = "https://lhzqnkrjqaebcfxcmlgd.supabase.co/functions/v1/staging-referral-proof-verify";
 const API_VERSION = "2026-10";
 const ORDER_ID = /^[1-9][0-9]{0,19}$/;
@@ -73,6 +73,16 @@ export async function auditOnePaidOrder({
     if(!paid)return safe("order_not_paid");
     if(typeof orderClickId!=="string" || !UUID.test(orderClickId))
       return safe("order_referral_missing_or_invalid",{paid:true});
+    // Confirm both independent Shopify order placements hold exactly the
+    // same synthetic click ID. Do not infer provenance from either location.
+    const noteIds=(order.note_attributes||[])
+      .filter(a=>a?.name==="MyStorefront click_id").map(a=>a?.value);
+    const itemIds=(order.line_items||[]).flatMap(item=>
+      (Array.isArray(item.properties)?item.properties:[])
+        .filter(a=>a?.name==="_MyStorefront click_id").map(a=>a?.value));
+    if(noteIds.length!==1 || itemIds.length===0 ||
+       [...noteIds,...itemIds].some(id=>id!==orderClickId))
+      return safe("order_referral_placements_inconsistent",{paid:true});
 
     const lookup=createProofLookup({
       endpoint:env.WEB_PIXEL_STAGING_BRIDGE_ENDPOINT,
@@ -111,7 +121,7 @@ export async function runStagingOrderAuditAtStartupOnce({
     const statuses=new Set([
       "disabled","adapter_unavailable","shopify_token_unavailable",
       "shopify_order_unavailable","shopify_order_mismatch","order_not_paid",
-      "order_referral_missing_or_invalid","delivery_state_unknown",
+      "order_referral_missing_or_invalid","order_referral_placements_inconsistent","delivery_state_unknown",
       "audit_complete","read_only_audit_unavailable"
     ]);
     const output={
