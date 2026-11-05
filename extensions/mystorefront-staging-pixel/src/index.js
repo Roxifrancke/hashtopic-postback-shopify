@@ -23,7 +23,11 @@ register(({ analytics, browser, init, customerPrivacy }) => {
       privacy: consentSnapshot,
       storage: browser.localStorage,
       nowMs: Date.now(),
-    }));
+    })).then((status) => {
+      // Diagnostic is local to DevTools. No click ID, URL, or customer data.
+      console.info('[MyStorefront staging pixel] referral_storage_status=' + status);
+      return status;
+    });
     return pending;
   };
 
