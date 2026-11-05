@@ -12,6 +12,45 @@ import { extractClickId } from "./postback-sender.js";
 const SHOP="mystorefront-test.myshopify.com";
 const ORDER_RE=/^(?:gid:\/\/shopify\/Order\/)?([1-9][0-9]{0,19})$/;
 const WINDOW_MS=30*24*60*60*1000;
+const REFERRAL_KEYS=new Set([
+  "MyStorefront click_id","click_id","_MyStorefront click_id","_click_id",
+]);
+const UUID_RE=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Read-only staging safeguard. Shopify order attributes may be supplied by
+ * separate cart/checkout integrations. A priority-ordered fallback must not
+ * silently hide contradictory referral IDs on the same order.
+ * No change to the existing production postback extraction policy.
+ */
+export function classifyOrderReferralEvidence(order){
+  if(!order || typeof order!=="object")
+    return {status:"blocked",reason:"order_evidence_missing"};
+  const values=[];
+  const note=order.note_attributes;
+  if(Array.isArray(note))for(const item of note){
+    if(REFERRAL_KEYS.has(item?.name) && item?.value!=null)
+      values.push(item.value);
+  }
+  if(Array.isArray(order.line_items))for(const item of order.line_items){
+    const properties=item?.properties;
+    if(Array.isArray(properties)){
+      for(const prop of properties)if(REFERRAL_KEYS.has(prop?.name) && prop?.value!=null)
+        values.push(prop.value);
+    }else if(properties && typeof properties==="object"){
+      for(const [name,value] of Object.entries(properties))
+        if(REFERRAL_KEYS.has(name) && value!=null)values.push(value);
+    }
+  }
+  if(!values.length)return {status:"blocked",reason:"order_referral_missing"};
+  if(values.some(value=>typeof value!=="string" ||
+      !UUID_RE.test(value.trim())))
+    return {status:"blocked",reason:"order_referral_invalid"};
+  const distinct=new Set(values.map(value=>value.trim().toLowerCase()));
+  if(distinct.size!==1)return {status:"blocked",reason:"order_referral_conflict"};
+  return {status:"consistent",click_id:[...distinct][0]};
+}
+
 const blocked=reason=>({
   status:"blocked",reason,commission_created:false,
   can_send_postback:false,
@@ -80,8 +119,10 @@ export async function assessReadOnlyPixelPaidOrder({
     return blocked("shopify_order_not_paid_or_mismatched");
   // A candidate click must be present on the independently fetched Shopify
   // order. Never join a genuine creator click to an unrelated paid order.
-  const orderClickId=extractClickId(order);
-  if(!orderClickId || orderClickId!==candidate.click_id)
+  const evidence=classifyOrderReferralEvidence(order);
+  if(evidence.status!=="consistent")return blocked(evidence.reason);
+  const orderClickId=evidence.click_id;
+  if(orderClickId!==candidate.click_id.toLowerCase())
     return blocked("order_referral_mismatch");
 
   // When the signed webhook carries a click ID, it must agree as well.
@@ -90,9 +131,15 @@ export async function assessReadOnlyPixelPaidOrder({
   try{webhookOrder=JSON.parse(webhook.rawBody.toString("utf8"))}catch{
     return blocked("webhook_json_invalid");
   }
-  const webhookClickId=extractClickId(webhookOrder);
-  if(webhookClickId && webhookClickId!==orderClickId)
+  const webhookEvidence=classifyOrderReferralEvidence(webhookOrder);
+  if(webhookEvidence.status==="consistent" &&
+      webhookEvidence.click_id!==orderClickId)
     return blocked("webhook_referral_mismatch");
+  // No referral attributes in a signed Shopify webhook is acceptable: the
+  // independently fetched Admin order must still contain consistent proof.
+  if(webhookEvidence.reason!=="order_referral_missing" &&
+      webhookEvidence.status!=="consistent")
+    return blocked("webhook_referral_conflict_or_invalid");
   const ordered=Date.parse(order.created_at);
   const clicked=Date.parse(click?.clicked_at);
   if(!Number.isFinite(nowMs)||!Number.isFinite(ordered)||
