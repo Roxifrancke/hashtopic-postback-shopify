@@ -20,8 +20,10 @@ const candidate={
 };
 const nowMs=Date.parse("2026-11-04T19:00:00Z");
 const order={shop,id:"123456789",financial_status:"paid",cancelled_at:null,
-  created_at:"2026-11-04T18:55:00Z"};
+  created_at:"2026-11-04T18:55:00Z",
+  note_attributes:[{name:"MyStorefront click_id",value:candidate.click_id}]};
 const click={status:"click_record_verified_pending_consent",
+  provenance_verified:true,
   clicked_at:"2026-11-04T18:45:00Z",
   commission_created:false,can_send_postback:false,consent_eligible:false};
 const inputs=()=>({
@@ -73,4 +75,62 @@ test("only exact test shop and server adapters are accepted",async()=>{
     candidate:{...candidate,shop:"other.myshopify.com"}});
   assert.equal(r.status,"blocked");
   assert.equal((await assessReadOnlyPixelPaidOrder({...inputs(),lookupTrustedClick:null})).status,"blocked");
+});
+
+test("paid order requires the identical proven click present in independent Shopify order",async()=>{
+  const variants=[
+    {note_attributes:[],line_items:[]},
+    {note_attributes:[{name:"MyStorefront click_id",value:"99999999-9999-4999-8999-999999999999"}]},
+    {note_attributes:[{name:"MyStorefront click_id",value:""}]},
+  ];
+  for(const variant of variants){
+    const decision=await assessReadOnlyPixelPaidOrder({
+      ...inputs(),fetchShopifyOrder:async()=>({...order,...variant}),
+    });
+    assert.equal(decision.status,"blocked");
+    assert.equal(decision.reason,"order_referral_mismatch");
+    assert.equal(decision.commission_created,false);
+    assert.equal(decision.can_send_postback,false);
+  }
+});
+
+test("signed webhook referral cannot contradict independently fetched order",async()=>{
+  const wrongPayload=Buffer.from(JSON.stringify({
+    id:123456789,financial_status:"paid",cancelled_at:null,
+    note_attributes:[{name:"MyStorefront click_id",value:"99999999-9999-4999-8999-999999999999"}],
+  }));
+  const decision=await assessReadOnlyPixelPaidOrder({
+    ...inputs(),
+    webhook:{...webhook,rawBody:wrongPayload,
+      hmac:createHmac("sha256",secret).update(wrongPayload).digest("base64")},
+  });
+  assert.equal(decision.status,"blocked");
+  assert.equal(decision.reason,"webhook_referral_mismatch");
+});
+
+test("verified MyStorefront provenance is mandatory even when click and order match",async()=>{
+  for(const untrusted of [
+    {...click,provenance_verified:false},
+    {...click,provenance_verified:undefined},
+    {...click,consent_eligible:true},
+  ]){
+    const decision=await assessReadOnlyPixelPaidOrder({
+      ...inputs(),lookupTrustedClick:async()=>untrusted,
+    });
+    assert.equal(decision.status,"blocked");
+    assert.equal(decision.can_send_postback,false);
+    assert.equal(decision.commission_created,false);
+  }
+});
+
+test("accelerated checkout line item referral can match a paid order",async()=>{
+  const decision=await assessReadOnlyPixelPaidOrder({
+    ...inputs(),fetchShopifyOrder:async()=>({
+      ...order,note_attributes:[],
+      line_items:[{properties:[{name:"_MyStorefront click_id",value:candidate.click_id}]}],
+    }),
+  });
+  assert.equal(decision.status,"verified_order_and_click_pending_consent");
+  assert.equal(decision.consent_eligible,false);
+  assert.equal(decision.can_send_postback,false);
 });
