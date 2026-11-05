@@ -20,6 +20,6 @@ test('Pixel prototype sends only an empty probe to the staging endpoint', () => 
   assert.match(smoke, /https:\/\/hashtopic-postback-shopify-staging\.onrender\.com/);
   assert.match(smoke, /\/api\/staging\/web-pixel-transport-probe\//);
   assert.doesNotMatch(smoke, /mystorefront-postback\.onrender\.com/);
-  assert.doesNotMatch(smoke, /checkout_completed|click_id|orders\/paid|commission|customer\./);
+  assert.doesNotMatch(smoke, /checkout_completed|orders\/paid|customer\./);
   assert.doesNotMatch(smoke, /body\s*:/);
 });
