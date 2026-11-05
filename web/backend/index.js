@@ -44,6 +44,7 @@ import {
 import settingsRouter from "./routes/settings.js";
 import deliveriesRouter from "./routes/deliveries.js";
 import webhookHandlers from "./webhooks/index.js";
+import { isStagingOrderQuarantineEnabled } from "./staging-order-postback-quarantine.js";
 import { startRetryWorker } from "./retry-worker.js";
 import { runStagingProofStartupOnce } from "./staging-proof-startup.js";
 import { runStagingOrderAuditAtStartupOnce } from "./staging-order-readonly-audit.js";
@@ -88,6 +89,12 @@ const shopify = shopifyApp({
 });
 
 const app = express();
+
+// Non-sensitive boot marker to verify the quarantine is actually enabled on
+// the Render test-store service. This does not log environment values.
+if (isStagingOrderQuarantineEnabled("mystorefront-test.myshopify.com")) {
+  console.info("[STAGING POSTBACK QUARANTINE] active for test store");
+}
 
 // This zero-data transport probe is only enabled on staging.
 // It must precede the general CORS handler, which otherwise intercepts OPTIONS.
