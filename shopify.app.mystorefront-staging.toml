@@ -18,7 +18,7 @@ api_version = "2026-10"
   shop_deletion_url = "https://hashtopic-postback-shopify-staging.onrender.com/api/webhooks/gdpr/shop_redact"
 
 [access_scopes]
-scopes = "read_orders,read_customers,read_price_rules,write_price_rules,write_pixels,read_customer_events,read_pixels"
+scopes = "read_customers,read_discounts,read_orders,read_price_rules,read_products,read_script_tags,read_themes,write_orders,write_price_rules,write_script_tags,write_themes,write_pixels,read_customer_events,read_pixels"
 optional_scopes = []
 use_legacy_install_flow = false
 
