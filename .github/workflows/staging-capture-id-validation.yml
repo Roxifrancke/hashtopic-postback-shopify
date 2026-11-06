@@ -1,0 +1,25 @@
+name: Staging capture ID validation
+on:
+  push:
+    branches:
+      - feature/staging-click-id-input-validation-20261106
+  pull_request:
+    paths:
+      - 'web/backend/routes/pixel-script.js'
+      - 'web/tests/staging-capture-id-validation.test.js'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install backend dependencies
+        working-directory: web
+        run: npm ci
+      - name: Run staging capture validation tests
+        working-directory: web
+        run: node --test tests/staging-capture-id-validation.test.js
