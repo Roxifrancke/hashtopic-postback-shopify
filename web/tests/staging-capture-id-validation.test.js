@@ -21,7 +21,7 @@ function run(shop,query) {
   };
   const ctx={
     URLSearchParams,Date,Number,JSON,Math,RegExp,encodeURIComponent,decodeURIComponent,
-    location:{protocol:'https:'},window:{
+    location:{protocol:'https:',search:query},window:{
       location:{search:query},sessionStorage:{getItem:()=>null,setItem:()=>{}},
       localStorage:{setItem:(k,v)=>storage.set(k,v),getItem:k=>storage.get(k)||null},
     },
