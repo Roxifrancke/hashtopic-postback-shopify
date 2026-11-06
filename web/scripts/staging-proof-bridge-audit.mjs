@@ -48,7 +48,9 @@ export async function runBridgeProofAudit({
        result.commission_created!==false)
       return blocked(
         result?.status==="blocked" &&
-        ["bridge_unavailable","bridge_rejected","invalid_bridge_response","invalid_query"].includes(result.reason)
+        ["bridge_unavailable","bridge_rejected","invalid_bridge_response","invalid_query",
+         "click_invalid","outside_referral_window","link_or_shop_invalid",
+         "server_issuance_not_attested","server_issuance_proof_invalid"].includes(result.reason)
           ? result.reason : "verification_failed"
       );
     return {
