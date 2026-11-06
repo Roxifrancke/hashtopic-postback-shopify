@@ -45,6 +45,7 @@ import settingsRouter from "./routes/settings.js";
 import deliveriesRouter from "./routes/deliveries.js";
 import webhookHandlers from "./webhooks/index.js";
 import { isStagingOrderQuarantineEnabled } from "./staging-order-postback-quarantine.js";
+import { logStagingSignedPaidOrderDiagnostic } from "./staging-signed-paid-diagnostic.js";
 import { startRetryWorker } from "./retry-worker.js";
 import { runStagingProofStartupOnce } from "./staging-proof-startup.js";
 import { runStagingOrderAuditAtStartupOnce } from "./staging-order-readonly-audit.js";
@@ -273,6 +274,9 @@ app.post("/api/webhooks", express.text({ type: "*/*" }), async (req, res) => {
 
   try {
     if (topic === "orders/paid") {
+      // HMAC was verified above. Log only non-sensitive evidence for the
+      // single quarantined staging test order, never a referral value.
+      logStagingSignedPaidOrderDiagnostic({shop, rawBody:req.body});
       await webhookHandlers.ordersPaid(topic, shop, req.body);
     } else if (topic === "orders/updated") {
       await webhookHandlers.ordersUpdated(topic, shop, req.body);
