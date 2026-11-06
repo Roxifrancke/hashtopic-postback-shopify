@@ -7,11 +7,38 @@
  * candidate cannot become a payable sale.
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { extractClickId } from "./postback-sender.js";
 
 const SHOP="mystorefront-test.myshopify.com";
 const ORDER_RE=/^(?:gid:\/\/shopify\/Order\/)?([1-9][0-9]{0,19})$/;
 const WINDOW_MS=30*24*60*60*1000;
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const NOTE_KEYS=new Set(["MyStorefront click_id","click_id"]);
+const ITEM_KEYS=new Set(["_MyStorefront click_id","click_id","_click_id"]);
+
+/** Strict read-only evidence check; never silently prefer one conflicting field. */
+export function classifyStagingOrderReferral(order){
+  if(!order || typeof order!=="object")return {status:"blocked",reason:"order_referral_missing"};
+  const values=[];
+  if(Array.isArray(order.note_attributes))for(const attr of order.note_attributes){
+    if(NOTE_KEYS.has(attr?.name))values.push(attr.value);
+  }
+  if(Array.isArray(order.line_items))for(const item of order.line_items){
+    const props=item?.properties;
+    if(Array.isArray(props)){
+      for(const prop of props)if(ITEM_KEYS.has(prop?.name))values.push(prop.value);
+    }else if(props && typeof props==="object"){
+      for(const [name,value] of Object.entries(props))
+        if(ITEM_KEYS.has(name))values.push(value);
+    }
+  }
+  if(values.length===0)return {status:"blocked",reason:"order_referral_missing"};
+  if(values.some(v=>typeof v!=="string" || !UUID.test(v)))
+    return {status:"blocked",reason:"order_referral_invalid"};
+  const unique=new Set(values.map(v=>v.toLowerCase()));
+  if(unique.size!==1)return {status:"blocked",reason:"order_referral_conflict"};
+  return {status:"consistent",click_id:[...unique][0]};
+}
+
 const blocked=reason=>({
   status:"blocked",reason,commission_created:false,
   can_send_postback:false,
@@ -80,8 +107,11 @@ export async function assessReadOnlyPixelPaidOrder({
     return blocked("shopify_order_not_paid_or_mismatched");
   // A candidate click must be present on the independently fetched Shopify
   // order. Never join a genuine creator click to an unrelated paid order.
-  const orderClickId=extractClickId(order);
-  if(!orderClickId || orderClickId!==candidate.click_id)
+  const orderEvidence=classifyStagingOrderReferral(order);
+  if(orderEvidence.status!=="consistent")return blocked(orderEvidence.reason);
+  const orderClickId=orderEvidence.click_id;
+  if(!UUID.test(candidate.click_id) ||
+     orderClickId!==candidate.click_id.toLowerCase())
     return blocked("order_referral_mismatch");
 
   // When the signed webhook carries a click ID, it must agree as well.
@@ -90,8 +120,14 @@ export async function assessReadOnlyPixelPaidOrder({
   try{webhookOrder=JSON.parse(webhook.rawBody.toString("utf8"))}catch{
     return blocked("webhook_json_invalid");
   }
-  const webhookClickId=extractClickId(webhookOrder);
-  if(webhookClickId && webhookClickId!==orderClickId)
+  const webhookEvidence=classifyStagingOrderReferral(webhookOrder);
+  // Signed Shopify webhooks may omit referral fields. If present, every field
+  // must be valid and match the independently fetched Admin order.
+  if(webhookEvidence.status==="blocked" &&
+     webhookEvidence.reason!=="order_referral_missing")
+    return blocked("webhook_referral_invalid_or_conflicting");
+  if(webhookEvidence.status==="consistent" &&
+     webhookEvidence.click_id!==orderClickId)
     return blocked("webhook_referral_mismatch");
   const ordered=Date.parse(order.created_at);
   const clicked=Date.parse(click?.clicked_at);

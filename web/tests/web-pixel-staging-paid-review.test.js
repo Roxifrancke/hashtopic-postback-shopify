@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHmac} from "node:crypto";
-import {assessReadOnlyPixelPaidOrder,verifyStagingPaidWebhook} from "../backend/web-pixel-staging-paid-review.js";
+import {assessReadOnlyPixelPaidOrder,verifyStagingPaidWebhook,classifyStagingOrderReferral} from "../backend/web-pixel-staging-paid-review.js";
 
 const shop="mystorefront-test.myshopify.com";
 const secret="fake-staging-webhook-secret-at-least-thirty-two-characters";
@@ -88,7 +88,12 @@ test("paid order requires the identical proven click present in independent Shop
       ...inputs(),fetchShopifyOrder:async()=>({...order,...variant}),
     });
     assert.equal(decision.status,"blocked");
-    assert.equal(decision.reason,"order_referral_mismatch");
+    const expected=variant.note_attributes.length===0
+      ? "order_referral_missing"
+      : variant.note_attributes[0].value===""
+        ? "order_referral_invalid"
+        : "order_referral_mismatch";
+    assert.equal(decision.reason,expected);
     assert.equal(decision.commission_created,false);
     assert.equal(decision.can_send_postback,false);
   }
@@ -133,4 +138,50 @@ test("accelerated checkout line item referral can match a paid order",async()=>{
   assert.equal(decision.status,"verified_order_and_click_pending_consent");
   assert.equal(decision.consent_eligible,false);
   assert.equal(decision.can_send_postback,false);
+});
+
+test("read-only paid-order reconciliation rejects malformed and contradictory order fields",async()=>{
+  const incorrect="99999999-9999-4999-8999-999999999999";
+  for(const modifiedOrder of [
+    {...order,line_items:[{properties:[{name:"_MyStorefront click_id",value:incorrect}]}]},
+    {...order,note_attributes:[{name:"MyStorefront click_id",value:candidate.click_id+"2."}],
+      line_items:[{properties:[{name:"_MyStorefront click_id",value:candidate.click_id}]}]},
+    {...order,note_attributes:[{name:"MyStorefront click_id",value:candidate.click_id},
+      {name:"click_id",value:incorrect}]},
+  ]){
+    const actual=await assessReadOnlyPixelPaidOrder({...inputs(),
+      fetchShopifyOrder:async()=>modifiedOrder});
+    assert.equal(actual.status,"blocked");
+    assert.ok(["order_referral_conflict","order_referral_invalid"].includes(actual.reason));
+    assert.equal(actual.commission_created,false);
+    assert.equal(actual.can_send_postback,false);
+  }
+});
+
+test("signed webhook contradictions are blocked even if independently fetched order matches",async()=>{
+  for(const note_attributes of [
+    [{name:"MyStorefront click_id",value:candidate.click_id+"2."}],
+    [{name:"MyStorefront click_id",value:candidate.click_id},
+      {name:"click_id",value:"99999999-9999-4999-8999-999999999999"}],
+  ]){
+    const body=Buffer.from(JSON.stringify({id:123456789,financial_status:"paid",
+      cancelled_at:null,note_attributes}));
+    const actual=await assessReadOnlyPixelPaidOrder({...inputs(),
+      webhook:{...webhook,rawBody:body,
+        hmac:createHmac("sha256",secret).update(body).digest("base64")}});
+    assert.equal(actual.status,"blocked");
+    assert.equal(actual.reason,"webhook_referral_invalid_or_conflicting");
+  }
+});
+
+test("matching current and legacy referral placements remain nonpayable",async()=>{
+  const mixed={...order,note_attributes:[
+    {name:"MyStorefront click_id",value:candidate.click_id},
+    {name:"click_id",value:candidate.click_id.toUpperCase()}],
+    line_items:[{properties:{"_MyStorefront click_id":candidate.click_id}}]};
+  assert.equal(classifyStagingOrderReferral(mixed).status,"consistent");
+  const actual=await assessReadOnlyPixelPaidOrder({...inputs(),fetchShopifyOrder:async()=>mixed});
+  assert.equal(actual.status,"verified_order_and_click_pending_consent");
+  assert.equal(actual.can_send_postback,false);
+  assert.equal(actual.commission_created,false);
 });
