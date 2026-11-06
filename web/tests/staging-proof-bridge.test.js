@@ -103,3 +103,31 @@ test("proof audit preserves only known bridge failure codes",async()=>{
     assert.equal(result.commission_created,false);
   }
 });
+
+test("staging bridge reports only fixed internal denial categories",async()=>{
+  for(const reason of [
+    "click_invalid","outside_referral_window","link_or_shop_invalid",
+    "server_issuance_not_attested","server_issuance_proof_invalid",
+  ]){
+    const lookup=createStagingProofBridgeLookup({
+      endpoint,token,now:fixedNow,
+      fetchImpl:async()=>({ok:true,json:async()=>({status:"blocked",reason})}),
+    });
+    const result=await lookup({shop,clickId});
+    assert.equal(result.status,"blocked");
+    assert.equal(result.reason,reason);
+    const audit=await runBridgeProofAudit({
+      env:validConfig,lookupFactory:()=>async()=>result,
+    });
+    assert.equal(audit.reason,reason);
+    assert.equal(audit.can_send_postback,false);
+    assert.equal(audit.commission_created,false);
+  }
+  const lookup=createStagingProofBridgeLookup({
+    endpoint,token,now:fixedNow,
+    fetchImpl:async()=>({ok:true,json:async()=>({
+      status:"blocked",reason:"private-click-id-or-secret-not-for-logs",
+    })}),
+  });
+  assert.equal((await lookup({shop,clickId})).reason,"bridge_rejected");
+});

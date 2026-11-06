@@ -60,7 +60,15 @@ export function createStagingProofBridgeLookup({
           commission_created:false,
         };
       if(result?.status==="blocked" ||
-         result?.status==="click_record_found_unproven") return blocked("bridge_rejected");
+         result?.status==="click_record_found_unproven") {
+        // This is a staging-only read-only diagnostic. Expose a fixed code
+        // only, never relay arbitrary edge response text or query data.
+        const allowed=new Set([
+          "click_invalid","outside_referral_window","link_or_shop_invalid",
+          "server_issuance_not_attested","server_issuance_proof_invalid",
+        ]);
+        return blocked(allowed.has(result.reason)?result.reason:"bridge_rejected");
+      }
       return blocked("invalid_bridge_response");
     } catch { return blocked("bridge_unavailable"); }
   };

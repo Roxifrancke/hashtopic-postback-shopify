@@ -28,6 +28,8 @@ export async function runStagingProofStartupOnce({
       "click_id_missing","endpoint_missing","bridge_token_missing",
       "bridge_unavailable","bridge_rejected","invalid_bridge_response",
       "invalid_query","verification_failed","connection_failed",
+      "click_invalid","outside_referral_window","link_or_shop_invalid",
+      "server_issuance_not_attested","server_issuance_proof_invalid",
     ]);
     const reason=safeStatus==="blocked" && allowedReasons.has(result?.reason)
       ? result.reason : "unknown";
