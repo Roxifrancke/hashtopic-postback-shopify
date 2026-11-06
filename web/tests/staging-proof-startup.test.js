@@ -45,6 +45,27 @@ test("all unexpected and thrown responses fail closed without logging secrets",a
       env,audit,logger:{info:x=>logs.push(x)},
     });
     assert.deepEqual(result,{started:true,status:"blocked"});
-    assert.deepEqual(logs,["[STAGING PROOF AUDIT] blocked"]);
+    assert.deepEqual(logs,["[STAGING PROOF AUDIT] blocked reason=unknown"]);
+  }
+});
+
+test("failure logging exposes only an allowlisted diagnostic reason",async()=>{
+  for(const [reason,expected] of [
+    ["bridge_rejected","bridge_rejected"],
+    ["bridge_unavailable","bridge_unavailable"],
+    ["verification_failed","verification_failed"],
+    ["audit_disabled","audit_disabled"],
+    ["click_id_missing","click_id_missing"],
+    ["potential-token-contents","unknown"],
+  ]){
+    resetStartupAttemptForTests();
+    const logs=[];
+    const result=await runStagingProofStartupOnce({
+      env,audit:async()=>({status:"blocked",reason,token:"do-not-leak",click_id:"do-not-leak"}),
+      logger:{info:x=>logs.push(x)},
+    });
+    assert.deepEqual(result,{started:true,status:"blocked"});
+    assert.deepEqual(logs,["[STAGING PROOF AUDIT] blocked reason="+expected]);
+    assert.equal(logs.join("").includes("do-not-leak"),false);
   }
 });
