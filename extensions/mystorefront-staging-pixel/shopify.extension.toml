@@ -1,0 +1,16 @@
+name = "mystorefront-staging-pixel"
+type = "web_pixel_extension"
+uid = "7d782d1d-dffb-d5c4-2a9f-232829fa4b956de0a258"
+
+runtime_context = "strict"
+
+[settings]
+type = "object"
+
+[settings.fields.accountID]
+name = "Account ID"
+description = "Account ID"
+type = "single_line_text_field"
+validations =  [
+  { name = "min", value = "1" }
+]
