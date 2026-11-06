@@ -2,6 +2,8 @@ import { Router } from "express";
 import { randomBytes, timingSafeEqual } from "crypto";
 import { getSettings, saveSettings } from "../db.js";
 import { buildTestPayload, sendPayload } from "../postback-sender.js";
+import { getValidAccessToken } from "../shopify-auth.js";
+import { ensureStagingAppPixel, stagingPixelActivationEnabled } from "../web-pixel-activation.js";
 
 /**
  * Constant-time string comparison to prevent timing attacks.
@@ -40,6 +42,14 @@ export default function settingsRouter(shopify) {
   router.get("/", async (req, res) => {
     try {
       const shop = res.locals.shopify.session.shop;
+      // Staging-only, idempotent auto-activation. This route runs when the
+      // merchant opens the embedded app. It never activates other shops.
+      if (stagingPixelActivationEnabled(shop)) {
+        void getValidAccessToken(shopify,shop)
+          .then(token=>ensureStagingAppPixel({shop,token}))
+          .then(result=>console.info('[MS PIXEL ACTIVATION]',result.status))
+          .catch(()=>console.warn('[MS PIXEL ACTIVATION] unavailable'));
+      }
       const s = await getSettings(shop);
 
       if (!s) {
