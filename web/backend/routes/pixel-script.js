@@ -42,7 +42,7 @@ pixelScriptRouter.get(["/capture.js", "/:shop/capture.js"], async (req, res) => 
   res.send(script);
 });
 
-function generateCaptureScript(paramNames, cookieName, cookieDays, shop) {
+export function generateCaptureScript(paramNames, cookieName, cookieDays, shop) {
   return `
 /* MyStorefront Postback — Click ID Capture v1.5.0
  *
