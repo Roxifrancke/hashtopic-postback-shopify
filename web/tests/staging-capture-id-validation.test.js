@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { generateCaptureScript } from '../backend/routes/pixel-script.js';
+import { readFileSync } from 'node:fs';
+const source=readFileSync(new URL('../backend/routes/pixel-script.js',import.meta.url),'utf8');
+// Evaluate only the pure script generator, avoiding the database-backed router.
+const generatorSource=source.slice(source.indexOf('export function generateCaptureScript(')).replace('export function generateCaptureScript(','function generateCaptureScript(');
+const generateCaptureScript=vm.runInNewContext(generatorSource+'\n generateCaptureScript;');
 
 const click='c84cc8f8-787a-40f2-8b3c-3e79e51e3001';
 function run(shop,query) {
