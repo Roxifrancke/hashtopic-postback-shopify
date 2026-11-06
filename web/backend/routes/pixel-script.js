@@ -112,11 +112,20 @@ export function generateCaptureScript(paramNames, cookieName, cookieDays, shop) 
   function trackingAllowed() {
     try {
       var cp = window.Shopify && window.Shopify.customerPrivacy;
+      // Only the isolated Shopify staging shop is strict while we validate
+      // the merchant's privacy policy. The production capture behavior stays
+      // unchanged until the lawful attribution basis is approved.
+      if (STRICT_STAGING_ID) {
+        return !!(cp && typeof cp.marketingAllowed === 'function' &&
+          cp.marketingAllowed() === true);
+      }
       if (cp && typeof cp.getTrackingConsent === 'function') {
         return cp.getTrackingConsent() !== 'no';
       }
-    } catch (e) {}
-    return true;
+    } catch (e) {
+      if (STRICT_STAGING_ID) return false;
+    }
+    return !STRICT_STAGING_ID;
   }
 
   // ── Read sources ─────────────────────────────────────────────────────────
