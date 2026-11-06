@@ -46,7 +46,11 @@ export async function runBridgeProofAudit({
        result.consent_eligible!==false ||
        result.can_send_postback!==false ||
        result.commission_created!==false)
-      return blocked("verification_failed");
+      return blocked(
+        result?.status==="blocked" &&
+        ["bridge_unavailable","bridge_rejected","invalid_bridge_response","invalid_query"].includes(result.reason)
+          ? result.reason : "verification_failed"
+      );
     return {
       status:"provenance_verified_pending_consent",
       provenance_verified:true,

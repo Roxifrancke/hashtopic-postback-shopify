@@ -21,10 +21,21 @@ export async function runStagingProofStartupOnce({
       result?.can_send_postback===false &&
       result?.commission_created===false
       ? "provenance_verified_pending_consent" : "blocked";
-    logger.info("[STAGING PROOF AUDIT] "+safeStatus);
+    // Log only fixed reason codes owned by this audit. Never log arbitrary
+    // edge-function text, click IDs, tokens, URLs or exceptions.
+    const allowedReasons=new Set([
+      "staging_database_missing","not_staging_service","audit_disabled",
+      "click_id_missing","endpoint_missing","bridge_token_missing",
+      "bridge_unavailable","bridge_rejected","invalid_bridge_response",
+      "invalid_query","verification_failed","connection_failed",
+    ]);
+    const reason=safeStatus==="blocked" && allowedReasons.has(result?.reason)
+      ? result.reason : "unknown";
+    logger.info("[STAGING PROOF AUDIT] "+safeStatus+
+      (safeStatus==="blocked" ? " reason="+reason : ""));
     return {started:true,status:safeStatus};
   } catch {
-    logger.info("[STAGING PROOF AUDIT] blocked");
+    logger.info("[STAGING PROOF AUDIT] blocked reason=unknown");
     return {started:true,status:"blocked"};
   }
 }
