@@ -27,12 +27,12 @@ export function stagingPaidOrderEvidence({shop,rawBody,env=process.env}={}) {
       Array.isArray(item?.properties) &&
       item.properties.some(p=>p?.name==="_MyStorefront click_id"));
   return {
-    status: validPaid && evidence.status==="consistent"
+    status: validPaid && notePresent && linePresent && evidence.status==="consistent"
       ? "signed_paid_referrals_consistent" : "signed_paid_referrals_not_confirmed",
     paid:validPaid,
     note_referral_present:notePresent,
     line_referral_present:linePresent,
-    values_consistent:evidence.status==="consistent",
+    values_consistent:notePresent && linePresent && evidence.status==="consistent",
     consent_eligible:false,can_send_postback:false,commission_created:false,
   };
 }
