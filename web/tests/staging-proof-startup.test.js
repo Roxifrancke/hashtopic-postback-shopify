@@ -69,3 +69,20 @@ test("failure logging exposes only an allowlisted diagnostic reason",async()=>{
     assert.equal(logs.join("").includes("do-not-leak"),false);
   }
 });
+
+test("staging startup safely reports fixed MyStorefront verifier denial codes",async()=>{
+  for(const reason of [
+    "click_invalid","outside_referral_window","link_or_shop_invalid",
+    "server_issuance_not_attested","server_issuance_proof_invalid",
+  ]){
+    resetStartupAttemptForTests();
+    const lines=[];
+    const output=await runStagingProofStartupOnce({
+      env,audit:async()=>({status:"blocked",reason,token:"not-for-logs"}),
+      logger:{info:line=>lines.push(line)},
+    });
+    assert.equal(output.status,"blocked");
+    assert.deepEqual(lines,["[STAGING PROOF AUDIT] blocked reason="+reason]);
+    assert.equal(lines.join("").includes("not-for-logs"),false);
+  }
+});
