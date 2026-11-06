@@ -1,6 +1,7 @@
 type = "web_pixel_extension"
 name = "MyStorefront Affiliate Pixel"
 runtime_context = "strict"
+uid = "e110a695-6340-d5a0-d9ed-7726e1bacf59764d072f"
 
 # Shopify CLI must generate and persist the extension uid before deploying.
 # We must not invent a uid by hand.
