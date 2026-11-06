@@ -1,0 +1,26 @@
+type = "web_pixel_extension"
+name = "MyStorefront Affiliate Pixel"
+runtime_context = "strict"
+uid = "e110a695-6340-d5a0-d9ed-7726e1bacf59764d072f"
+
+# The pixel only runs when the shopper has allowed analytics and marketing,
+# or when the store doesn't ask for consent (the normal case in South Africa).
+[customer_privacy]
+analytics = true
+marketing = true
+preferences = false
+sale_of_data = "disabled"
+
+# Set by the app itself (web/backend/web-pixel-activation.js), never by hand.
+[settings]
+type = "object"
+
+[settings.fields.shop]
+name = "Shop domain"
+description = "Permanent *.myshopify.com domain, set by the app"
+type = "single_line_text_field"
+
+[settings.fields.endpoint]
+name = "Receiver URL"
+description = "MyStorefront Postback backend URL, set by the app"
+type = "single_line_text_field"

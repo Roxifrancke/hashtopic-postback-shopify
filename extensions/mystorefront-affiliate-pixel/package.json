@@ -1,0 +1,9 @@
+{
+  "name": "mystorefront-affiliate-pixel",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.js",
+  "dependencies": {
+    "@shopify/web-pixels-extension": "^2.0.0"
+  }
+}
