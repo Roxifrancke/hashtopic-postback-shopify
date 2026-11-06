@@ -123,7 +123,7 @@ export function generateCaptureScript(paramNames, cookieName, cookieDays, shop) 
       var params = new URLSearchParams(window.location.search);
       for (var i = 0; i < names.length; i++) {
         var val = params.get(names[i]);
-        if (val && val.trim()) return val.trim();
+        if (val && val.trim()) return STRICT_STAGING_ID ? val : val.trim();
       }
     } catch(e) {}
     return null;
