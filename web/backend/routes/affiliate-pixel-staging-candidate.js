@@ -2,7 +2,7 @@ import { Router, json } from 'express';
 
 const SHOP='mystorefront-test.myshopify.com';
 const HOST='https://hashtopic-postback-shopify-staging.onrender.com';
-const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TOKEN=/^[a-zA-Z0-9_-]{12,128}$/;
 const ORDER=/^[1-9][0-9]{0,19}$/;
 const CANDIDATE_PATH='/api/staging/affiliate-pixel-candidate';
