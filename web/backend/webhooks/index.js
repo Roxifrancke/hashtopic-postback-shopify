@@ -17,10 +17,36 @@ import {
   extractClickId,
   MAX_ATTEMPTS,
 } from "../postback-sender.js";
+import { findClickIdForOrder } from "../pixel-referrals.js";
 
 const MAX_RETRY = MAX_ATTEMPTS;
 
-async function processOrder(shop, order) {
+// Name the pixel's click_id is attached under. It matches the first name
+// extractClickId() checks, so buildPayload / buildRefundPayload pick it up
+// without any changes.
+const PIXEL_NOTE_ATTR = "MyStorefront click_id";
+
+/**
+ * If the order has no click_id from the theme embed, look for one the Web
+ * Pixel recorded against this order's checkout_token, and attach it as a
+ * note attribute on our in-memory copy of the order. Nothing is written back
+ * to Shopify.
+ */
+async function attachPixelClickId(shop, order) {
+  if (!order || extractClickId(order)) return order;
+  const clickId = await findClickIdForOrder(shop, order);
+  if (!clickId) return order;
+  return {
+    ...order,
+    note_attributes: [
+      ...(Array.isArray(order.note_attributes) ? order.note_attributes : []),
+      { name: PIXEL_NOTE_ATTR, value: clickId },
+    ],
+  };
+}
+
+async function processOrder(shop, incomingOrder) {
+  const order = await attachPixelClickId(shop, incomingOrder);
   const settings = await getSettings(shop);
   if (!settings?.webhook_url) {
     console.log(`[MS] No webhook URL configured for ${shop}, skipping.`);
@@ -143,9 +169,11 @@ async function processRefund(shop, refund, shopify) {
     throw new Error(`Refund cannot be processed: webhook URL not configured for ${shop}`);
   }
 
-  // Fetch parent order to pull click_id (line item property or note attribute).
-  const order = await fetchOrder(shop, refund.order_id, shopify);
+  // Fetch parent order to pull click_id (line item property, note attribute,
+  // or the Web Pixel record for its checkout_token).
+  let order = await fetchOrder(shop, refund.order_id, shopify);
   if (!order) throw new Error(`Refund parent order lookup failed for ${shop}/${refund.order_id}`);
+  order = await attachPixelClickId(shop, order);
 
   // No click_id → not an affiliate order, no commission to claw back.
   const clickId = extractClickId(order);
@@ -199,4 +227,27 @@ const refundsCreate = async (topic, shop, body, webhookId, shopify) => {
   }
 };
 
-export default { ordersPaid, ordersUpdated, refundsCreate, processOrder, processRefund };
+/**
+ * Called after the Web Pixel reports a referral. The paid webhook may already
+ * have arrived (and been skipped for having no click_id), so fetch the order
+ * and run it through processOrder again. processOrder is idempotent: it skips
+ * unpaid orders and orders already sent.
+ *
+ * The pixel's order_id is only a hint. We only continue if the order Shopify
+ * returns has the same checkout_token the pixel reported.
+ */
+async function processPixelReferral(shop, referral, shopify) {
+  if (!referral?.orderId) return;
+  const order = await fetchOrder(shop, referral.orderId, shopify);
+  if (!order || order.checkout_token !== referral.checkoutToken) return;
+  await processOrder(shop, order);
+}
+
+export default {
+  ordersPaid,
+  ordersUpdated,
+  refundsCreate,
+  processOrder,
+  processRefund,
+  processPixelReferral,
+};

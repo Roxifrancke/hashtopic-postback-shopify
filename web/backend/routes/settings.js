@@ -2,6 +2,8 @@ import { Router } from "express";
 import { randomBytes, timingSafeEqual } from "crypto";
 import { getSettings, saveSettings } from "../db.js";
 import { buildTestPayload, sendPayload } from "../postback-sender.js";
+import { getValidAccessToken } from "../shopify-auth.js";
+import { ensureWebPixel } from "../web-pixel-activation.js";
 
 /**
  * Constant-time string comparison to prevent timing attacks.
@@ -40,6 +42,14 @@ export default function settingsRouter(shopify) {
   router.get("/", async (req, res) => {
     try {
       const shop = res.locals.shopify.session.shop;
+
+      // Make sure the MyStorefront Web Pixel is switched on for this shop.
+      // Runs in the background every time the merchant opens the app, so no
+      // theme toggle is needed. Never blocks or fails the settings load.
+      getValidAccessToken(shopify, shop)
+        .then((token) => ensureWebPixel({ shop, token }))
+        .then((result) => console.log(`[MS PIXEL] Activation for ${shop}: ${result.status}`, result.errors || ""))
+        .catch((err) => console.warn(`[MS PIXEL] Activation for ${shop} failed:`, err?.message || err));
       const s = await getSettings(shop);
 
       if (!s) {

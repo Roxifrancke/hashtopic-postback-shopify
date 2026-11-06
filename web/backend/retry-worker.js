@@ -8,6 +8,7 @@ import {
   getSettings,
 } from "./db.js";
 import { sendPayload, nextRetryAt, MAX_ATTEMPTS } from "./postback-sender.js";
+import { purgeOldReferrals } from "./pixel-referrals.js";
 
 export function startRetryWorker() {
   // Run every minute to check for pending retries
@@ -33,6 +34,11 @@ export function startRetryWorker() {
       if (n > 0) console.log(`[MS Retention] Purged ${n} delivery rows older than 90 days.`);
     } catch (err) {
       console.error("[MS Retention] Purge failed:", err);
+    }
+    try {
+      await purgeOldReferrals();
+    } catch (err) {
+      console.error("[MS Retention] Pixel referral purge failed:", err);
     }
   });
 
