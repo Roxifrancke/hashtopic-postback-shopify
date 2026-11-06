@@ -48,7 +48,7 @@ export function validatePixelCandidate(p){
     typeof p.checkout_token==='string' && TOKEN.test(p.checkout_token) &&
     (p.order_id===null||(typeof p.order_id==='string' && ORDER.test(p.order_id))) &&
     typeof p.event_id==='string' && p.event_id.length>=1 &&
-    p.event_id.length<=128 && /^[a-zA-Z0-9._:-]+$/.test(p.event_id));
+    p.event_id.length<=128 && /^[a-zA-Z0-9_._:-]+$/.test(p.event_id));
 }
 
 export async function acceptStagingPixelCandidate({pool,input}){
