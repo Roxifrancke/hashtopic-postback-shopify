@@ -6,8 +6,8 @@ import {
 } from "../backend/staging-order-readonly-audit.js";
 
 const shop="mystorefront-test.myshopify.com";
-const orderId="7275644289089";
-const clickId="080af0cd-e448-4f80-a95a-644176ec32a0";
+const orderId="7276986433601";
+const clickId="c84cc8f8-787a-40f2-8b3c-3e79e51e3001";
 const now=()=>Date.parse("2026-11-05T08:15:00Z");
 const env={
   WEB_PIXEL_STAGING_ORDER_AUDIT_ENABLED:"true",
@@ -25,10 +25,11 @@ const token={
 const order={
   id:Number(orderId),financial_status:"paid",cancelled_at:null,
   note_attributes:[{name:"MyStorefront click_id",value:clickId}],
+  line_items:[{properties:[{name:"_MyStorefront click_id",value:clickId}]}],
 };
 const proof={
-  status:"click_record_verified_pending_consent",
-  provenance_verified:true,can_send_postback:false,commission_created:false,
+  status:"blocked",reason:"click_not_found",
+  provenance_verified:false,can_send_postback:false,commission_created:false,
 };
 function adapters({
   shopifyOrder=order,tokenResponse=token,proofResult=proof,
@@ -70,13 +71,13 @@ test("only exact staging service, db, order and explicit flags may run",()=>{
   ]) assert.equal(auditEnabled({...env,...changes}),false);
 });
 
-test("paid order matching creator proof is informational only, never payable",async()=>{
+test("paid synthetic order contains referral placements but has no trusted provenance",async()=>{
   const d=adapters();
   const result=await auditOnePaidOrder({env,...d,now});
   assert.equal(result.status,"audit_complete");
   assert.equal(result.paid,true);
   assert.equal(result.order_referral_present,true);
-  assert.equal(result.provenance_verified,true);
+  assert.equal(result.provenance_verified,false);
   assert.equal(result.delivery_exists,false);
   assert.equal(result.consent_eligible,false);
   assert.equal(result.can_send_postback,false);
@@ -90,6 +91,8 @@ test("missing or unpaid order never consults proof or writes delivery",async()=>
     {...order,financial_status:"pending"},
     {...order,cancelled_at:"2026-11-05T08:10:00Z"},
     {...order,note_attributes:[]},
+    {...order,line_items:[]},
+    {...order,line_items:[{properties:[{name:"_MyStorefront click_id",value:"99999999-9999-4999-8999-999999999999"}]}]},
     {...order,id:12},
   ]){
     const d=adapters({shopifyOrder:bad});
