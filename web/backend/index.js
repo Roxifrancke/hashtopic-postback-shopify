@@ -50,6 +50,7 @@ import discountCodesRouter from "./routes/discount-codes.js";
 import { shopifyHealthRouter } from "./routes/shopify-health.js";
 import cors from "cors";
 import gdprRouter from "./routes/gdpr.js";
+import { pixelReferralRouter } from "./pixel-referrals.js";
 
 const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || "3000", 10);
 const STATIC_PATH =
@@ -85,6 +86,18 @@ const shopify = shopifyApp({
 });
 
 const app = express();
+
+// Web Pixel receiver. Registered first so the global CORS policy below
+// (which denies browser cross-origin calls) doesn't block it. The pixel runs
+// in Shopify's sandbox and posts the click_id + checkout token here. The
+// router sets its own CORS headers and body parser.
+app.use(
+  "/api/pixel-events",
+  pixelReferralRouter({
+    onReferral: (referral) =>
+      webhookHandlers.processPixelReferral(referral.shop, referral, shopify),
+  })
+);
 
 // Cross-origin policy. The embedded admin UI calls this backend same-origin,
 // and every server-to-server caller (the MyStorefront / Loveable Supabase edge
