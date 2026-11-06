@@ -27,7 +27,7 @@ pixelScriptRouter.get(["/capture.js", "/:shop/capture.js"], async (req, res) => 
   const cookieName = settings?.cookie_name || "click_id";
   const cookieDays = Math.min(365, Math.max(1, parseInt(settings?.cookie_days || 30, 10)));
 
-  const script = generateCaptureScript(paramNames, cookieName, cookieDays);
+  const script = generateCaptureScript(paramNames, cookieName, cookieDays, shop);
 
   res.set({
     "Content-Type": "application/javascript; charset=utf-8",
@@ -42,7 +42,7 @@ pixelScriptRouter.get(["/capture.js", "/:shop/capture.js"], async (req, res) => 
   res.send(script);
 });
 
-function generateCaptureScript(paramNames, cookieName, cookieDays) {
+function generateCaptureScript(paramNames, cookieName, cookieDays, shop) {
   return `
 /* MyStorefront Postback — Click ID Capture v1.5.0
  *
@@ -81,6 +81,14 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
   var STORAGE_KEY = 'mystorefront_click_id';
   var STORAGE_TS_KEY = 'mystorefront_click_id_ts';
   var EXPIRY_DAYS = COOKIE_DAYS; // attribution window follows merchant config
+  // This guard is activated only for the isolated Shopify test store.
+  // A malformed string must not reach cart/order attributes. Do not
+  // silently trim or repair invalid referral evidence.
+  var STRICT_STAGING_ID = ${JSON.stringify(shop === 'mystorefront-test.myshopify.com')};
+  function validStagingClickId(value) {
+    return typeof value === 'string' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  }
   // Line item property: leading underscore hides from cart/checkout/customer
   // emails (Shopify convention). Admin still shows it under each line item.
   var LINE_ITEM_PROP_NAME = '_MyStorefront click_id';
@@ -304,7 +312,11 @@ function getStoredClickId() {
 
     // 1. URL → persist everywhere (URL always wins over stored value).
     var fromUrl = getUrlParam(PARAM_NAMES);
+    // Reject an explicitly malformed click_id even when an older valid
+    // referral exists locally. Never fall back silently for a bad URL.
+    if (STRICT_STAGING_ID && fromUrl && !validStagingClickId(fromUrl)) return;
     var clickId = fromUrl || getStoredClickId();
+    if (STRICT_STAGING_ID && clickId && !validStagingClickId(clickId)) return;
     var timestamp = fromUrl ? Date.now() : Number((function() {
       try { return window.localStorage.getItem(STORAGE_TS_KEY); } catch(e) { return null; }
     })());
