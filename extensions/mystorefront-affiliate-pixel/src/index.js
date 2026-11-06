@@ -3,7 +3,7 @@ import { register } from '@shopify/web-pixels-extension';
 // Shopify app pixel: runs in Shopify's strict sandbox, not the storefront DOM.
 // No cart mutations or hidden form inputs. Do not send customer PII.
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SHOP=/^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$/;
+const SHOP=/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/;
 const KEY='mystorefront_pixel_referral_v1';
 const MAX_AGE=30*86400000;
 
