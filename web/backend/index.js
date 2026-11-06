@@ -47,6 +47,7 @@ import webhookHandlers from "./webhooks/index.js";
 import { isStagingOrderQuarantineEnabled } from "./staging-order-postback-quarantine.js";
 import { logStagingSignedPaidOrderDiagnostic } from "./staging-signed-paid-diagnostic.js";
 import { recordStagingSignedCheckoutToken } from "./staging-pixel-paid-token.js";
+import { reconcileStagingCheckoutToken } from "./staging-checkout-token-reconciliation.js";
 import { startRetryWorker } from "./retry-worker.js";
 import { runStagingProofStartupOnce } from "./staging-proof-startup.js";
 import { runStagingOrderAuditAtStartupOnce } from "./staging-order-readonly-audit.js";
@@ -289,8 +290,19 @@ app.post("/api/webhooks", express.text({ type: "*/*" }), async (req, res) => {
       // from financial delivery. The HMAC signature has already been verified.
       // No browser-originated event may initiate a commission.
       void recordStagingSignedCheckoutToken({shop,rawBody:req.body,pool:db})
-        .then(result=>console.info('[STAGING PIXEL PAID TOKEN]',result.status))
-        .catch(()=>console.warn('[STAGING PIXEL PAID TOKEN] unavailable'));
+        .then(async tokenResult => {
+          console.info('[STAGING PIXEL PAID TOKEN]',tokenResult.status);
+          if (!['recorded','duplicate'].includes(tokenResult.status)) return;
+          let paid;
+          try { paid=JSON.parse(req.body); } catch { return; }
+          const diagnostic=await reconcileStagingCheckoutToken({
+            pool:db,shop,checkoutToken:paid.checkout_token,
+            signedOrderId:String(paid.id),nowMs:Date.now(),
+          });
+          // A correlation is never a commission authorization. Log status only.
+          console.info('[STAGING PIXEL CHECKOUT CORRELATION]',diagnostic.status);
+        })
+        .catch(()=>console.warn('[STAGING PIXEL CHECKOUT CORRELATION] unavailable'));
       await webhookHandlers.ordersPaid(topic, shop, req.body);
     } else if (topic === "orders/updated") {
       await webhookHandlers.ordersUpdated(topic, shop, req.body);
