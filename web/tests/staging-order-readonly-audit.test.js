@@ -143,3 +143,31 @@ test("startup executes once and logs only whitelisted non-sensitive status",asyn
   assert.equal(messages[0].includes(clickId),false);
   assert.equal(messages[0].includes("do-not-log-me"),false);
 });
+
+test("read-only audit distinguishes malformed order attribute from valid line-item referral",async()=>{
+  const audit=await auditOnePaidOrder({env,...adapters({shopifyOrder:{
+    ...order,
+    note_attributes:[{name:"MyStorefront click_id",value:clickId+"2."}],
+  }}),now});
+  assert.equal(audit.status,"order_referral_placements_inconsistent");
+  assert.equal(audit.paid,true);
+  assert.equal(audit.note_referral_present,true);
+  assert.equal(audit.line_referral_present,true);
+  assert.equal(audit.note_referral_uuid_valid,false);
+  assert.equal(audit.line_referral_uuid_valid,true);
+  assert.equal(audit.order_referral_values_match,false);
+  assert.equal(audit.can_send_postback,false);
+  assert.equal(audit.commission_created,false);
+  assert.equal(JSON.stringify(audit).includes(clickId),false);
+});
+
+test("consistent order referral placements remain informational only",async()=>{
+  const audit=await auditOnePaidOrder({env,...adapters(),now});
+  assert.equal(audit.status,"audit_complete");
+  assert.equal(audit.note_referral_uuid_valid,true);
+  assert.equal(audit.line_referral_uuid_valid,true);
+  assert.equal(audit.order_referral_values_match,true);
+  assert.equal(audit.provenance_verified,false);
+  assert.equal(audit.can_send_postback,false);
+  assert.equal(audit.commission_created,false);
+});
