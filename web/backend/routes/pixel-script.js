@@ -101,6 +101,9 @@ export function generateCaptureScript(paramNames, cookieName, cookieDays, shop) 
   // session instead of on every page load (repeated /cart/update.js writes
   // make some themes re-render or flash the cart drawer as the shopper browses).
   var CART_WRITE_FLAG = 'mystorefront_cart_written';
+  // The isolated test store must confirm Shopify's cart response before
+  // treating the attribute as persisted. Live stores retain legacy behavior.
+  var stagingCartWriteInFlight = null;
 
   // ── Consent ──────────────────────────────────────────────────────────────
   // Respect an explicit decline via Shopify's Customer Privacy API. When the
@@ -203,21 +206,72 @@ function getStoredClickId() {
     try {
       var ss = null;
       try { ss = window.sessionStorage; } catch (e) {}
-      // Skip if we've already written this click_id to the cart this session.
+      // Skip if we've already confirmed this click_id in the cart.
       if (ss) {
         try { if (ss.getItem(CART_WRITE_FLAG) === clickId) return; } catch (e) {}
       }
       var attrs = {};
       attrs[CART_ATTR_NAME] = clickId;
-      fetch('/cart/update.js', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ attributes: attrs })
-      }).catch(function() {});
-      if (ss) {
-        try { ss.setItem(CART_WRITE_FLAG, clickId); } catch (e) {}
+
+      // Do not change existing behavior for any live merchant store.
+      if (!STRICT_STAGING_ID) {
+        fetch('/cart/update.js', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ attributes: attrs })
+        }).catch(function() {});
+        if (ss) {
+          try { ss.setItem(CART_WRITE_FLAG, clickId); } catch (e) {}
+        }
+        return;
       }
-    } catch(e) {}
+
+      // A duplicate run (e.g. consent event) must not trigger a concurrent
+      // cart mutation. A newer referral can be tried on the next page load.
+      if (stagingCartWriteInFlight) return;
+      stagingCartWriteInFlight = clickId;
+
+      function attempt(remainingRetries) {
+        // Do not retry after an explicit consent decline or referral change.
+        if (!trackingAllowed() || getStoredClickId() !== clickId) {
+          stagingCartWriteInFlight = null;
+          return;
+        }
+        var failed = function() {
+          if (remainingRetries > 0 && typeof setTimeout === 'function') {
+            setTimeout(function() { attempt(remainingRetries - 1); }, 600);
+          } else {
+            // No success marker: a later page load can retry.
+            stagingCartWriteInFlight = null;
+          }
+        };
+        try {
+          fetch('/cart/update.js', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ attributes: attrs })
+          }).then(function(response) {
+            if (!response || !response.ok || typeof response.json !== 'function') {
+              failed();
+              return;
+            }
+            response.json().then(function(cart) {
+              if (cart && cart.attributes &&
+                  cart.attributes[CART_ATTR_NAME] === clickId &&
+                  trackingAllowed() && getStoredClickId() === clickId) {
+                if (ss) {
+                  try { ss.setItem(CART_WRITE_FLAG, clickId); } catch (e) {}
+                }
+                stagingCartWriteInFlight = null;
+              } else {
+                failed();
+              }
+            }).catch(failed);
+          }).catch(failed);
+        } catch (e) { failed(); }
+      }
+      attempt(1);
+    } catch(e) { stagingCartWriteInFlight = null; }
   }
 
   // ── Form injection (primary attribution channel) ─────────────────────────
