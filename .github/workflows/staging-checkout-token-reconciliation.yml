@@ -1,0 +1,30 @@
+name: Staging Shopify Checkout Token Reconciliation
+on:
+  push:
+    branches:
+      - 'fix/staging-checkout-token-reconcile-20261106'
+  pull_request:
+    paths:
+      - 'web/backend/staging-checkout-token-reconciliation.js'
+      - 'web/backend/index.js'
+      - 'web/tests/staging-checkout-token-reconciliation.test.js'
+      - '.github/workflows/staging-checkout-token-reconciliation.yml'
+permissions:
+  contents: read
+jobs:
+  reconciliation:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check
+        run: |
+          node --check backend/staging-checkout-token-reconciliation.js
+          node --check backend/index.js
+      - name: Run token correlation unit tests
+        run: node --test tests/staging-checkout-token-reconciliation.test.js
