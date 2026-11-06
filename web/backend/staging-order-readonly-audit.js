@@ -20,6 +20,9 @@ const safe = (status, extra={}) => ({
   provenance_verified:false, delivery_exists:null,
   consent_eligible:false, can_send_postback:false,
   commission_created:false,
+  note_referral_present:false,line_referral_present:false,
+  note_referral_uuid_valid:false,line_referral_uuid_valid:false,
+  order_referral_values_match:false,
   ...extra,
 });
 
@@ -69,20 +72,36 @@ export async function auditOnePaidOrder({
     if(String(order?.id)!==AUDIT_ORDER)
       return safe("shopify_order_mismatch");
     const paid=order.financial_status==="paid" && !order.cancelled_at;
-    const orderClickId=extractClickId(order);
     if(!paid)return safe("order_not_paid");
-    if(typeof orderClickId!=="string" || !UUID.test(orderClickId))
-      return safe("order_referral_missing_or_invalid",{paid:true});
-    // Confirm both independent Shopify order placements hold exactly the
-    // same synthetic click ID. Do not infer provenance from either location.
-    const noteIds=(order.note_attributes||[])
+    // Independently inspect each placement BEFORE extracting a preferred
+    // value. A malformed order-level attribute must never shadow a valid
+    // line-item ID and be reported simply as "missing".
+    const noteIds=(Array.isArray(order.note_attributes)?order.note_attributes:[])
       .filter(a=>a?.name==="MyStorefront click_id").map(a=>a?.value);
-    const itemIds=(order.line_items||[]).flatMap(item=>
-      (Array.isArray(item.properties)?item.properties:[])
-        .filter(a=>a?.name==="_MyStorefront click_id").map(a=>a?.value));
-    if(noteIds.length!==1 || itemIds.length===0 ||
-       [...noteIds,...itemIds].some(id=>id!==orderClickId))
-      return safe("order_referral_placements_inconsistent",{paid:true});
+    const itemIds=(Array.isArray(order.line_items)?order.line_items:[]).flatMap(item=>{
+      const props=item?.properties;
+      return Array.isArray(props)
+        ? props.filter(a=>a?.name==="_MyStorefront click_id").map(a=>a?.value)
+        : props && Object.hasOwn(props,"_MyStorefront click_id")
+          ? [props["_MyStorefront click_id"]] : [];
+    });
+    const flags={
+      paid:true,
+      note_referral_present:noteIds.length>0,
+      line_referral_present:itemIds.length>0,
+      note_referral_uuid_valid:noteIds.length===1 &&
+        typeof noteIds[0]==="string" && UUID.test(noteIds[0]),
+      line_referral_uuid_valid:itemIds.length>0 &&
+        itemIds.every(v=>typeof v==="string" && UUID.test(v)),
+      order_referral_values_match:noteIds.length===1 && itemIds.length>0 &&
+        itemIds.every(v=>v===noteIds[0]),
+    };
+    if(!flags.note_referral_present && !flags.line_referral_present)
+      return safe("order_referral_missing_or_invalid",flags);
+    if(!flags.note_referral_uuid_valid || !flags.line_referral_uuid_valid ||
+       !flags.order_referral_values_match)
+      return safe("order_referral_placements_inconsistent",flags);
+    const orderClickId=noteIds[0];
 
     const lookup=createProofLookup({
       endpoint:env.WEB_PIXEL_STAGING_BRIDGE_ENDPOINT,
@@ -104,6 +123,7 @@ export async function auditOnePaidOrder({
         proof?.can_send_postback===false &&
         proof?.commission_created===false,
       delivery_exists:exists,
+      ...flags,
     });
   } catch {return safe("read_only_audit_unavailable");}
 }
@@ -131,7 +151,12 @@ export async function runStagingOrderAuditAtStartupOnce({
       provenance_verified:result?.provenance_verified===true,
       delivery_exists:typeof result?.delivery_exists==="boolean"?
         result.delivery_exists:null,
-      consent_eligible:false,can_send_postback:false,commission_created:false
+      consent_eligible:false,can_send_postback:false,commission_created:false,
+      note_referral_present:result?.note_referral_present===true,
+      line_referral_present:result?.line_referral_present===true,
+      note_referral_uuid_valid:result?.note_referral_uuid_valid===true,
+      line_referral_uuid_valid:result?.line_referral_uuid_valid===true,
+      order_referral_values_match:result?.order_referral_values_match===true
     };
     logger.info("[STAGING ORDER READONLY AUDIT] "+JSON.stringify(output));
     return {started:true,...output};
