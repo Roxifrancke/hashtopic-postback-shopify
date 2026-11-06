@@ -57,3 +57,89 @@ test('production shop keeps previous capture behavior (no broad rollout)',()=>{
   assert.equal(r.calls.length,1);
   assert.equal(r.formInputs.length,1);
 });
+
+function createCartConfirmationHarness(shop, responses) {
+  const calls=[];
+  const local=new Map();
+  const session=new Map();
+  const timers=[];
+  const ctx={
+    URLSearchParams,Date,Number,JSON,Math,RegExp,encodeURIComponent,decodeURIComponent,
+    setTimeout(fn){timers.push(fn);},
+    location:{protocol:'https:',search:'?click_id='+click},
+    window:{
+      location:{search:'?click_id='+click},
+      sessionStorage:{
+        getItem:k=>session.get(k)||null,
+        setItem:(k,v)=>session.set(k,v),
+      },
+      localStorage:{
+        getItem:k=>local.get(k)||null,
+        setItem:(k,v)=>local.set(k,v),
+      },
+    },
+    document:{
+      readyState:'complete',cookie:'',
+      querySelectorAll:()=>[],
+      addEventListener(){},
+      body:{},
+    },
+    fetch:(url,opts)=>{
+      calls.push({url,opts});
+      const next=responses.shift();
+      return next instanceof Error ? Promise.reject(next) : Promise.resolve(next);
+    },
+    MutationObserver:class {observe(){}},
+  };
+  ctx.window.location=ctx.location;
+  vm.runInNewContext(generateCaptureScript(['click_id'],'click_id',30,shop),ctx);
+  return {calls,session,timers,ctx};
+}
+async function flushCartTasks() {
+  for(let i=0;i<6;i++)await Promise.resolve();
+}
+test('staging marks cart saved only after JSON confirms matching attribute',async()=>{
+  const h=createCartConfirmationHarness('mystorefront-test.myshopify.com',[
+    {ok:true,json:async()=>({attributes:{'MyStorefront click_id':click}})},
+  ]);
+  assert.equal(h.session.get('mystorefront_cart_written'),undefined);
+  await flushCartTasks();
+  assert.equal(h.calls.length,1);
+  assert.equal(h.session.get('mystorefront_cart_written'),click);
+  assert.equal(h.timers.length,0);
+});
+test('staging retries a rejected cart mutation once, then confirms persistence',async()=>{
+  const h=createCartConfirmationHarness('mystorefront-test.myshopify.com',[
+    {ok:false,json:async()=>({})},
+    {ok:true,json:async()=>({attributes:{'MyStorefront click_id':click}})},
+  ]);
+  await flushCartTasks();
+  assert.equal(h.session.get('mystorefront_cart_written'),undefined);
+  assert.equal(h.timers.length,1);
+  h.timers.shift()();
+  await flushCartTasks();
+  assert.equal(h.calls.length,2);
+  assert.equal(h.session.get('mystorefront_cart_written'),click);
+});
+test('staging does not mark saved after repeated failure or mismatched confirmation',async()=>{
+  const h=createCartConfirmationHarness('mystorefront-test.myshopify.com',[
+    {ok:true,json:async()=>({attributes:{'MyStorefront click_id':'wrong'}})},
+    new Error('network unavailable'),
+  ]);
+  await flushCartTasks();
+  assert.equal(h.session.get('mystorefront_cart_written'),undefined);
+  h.timers.shift()();
+  await flushCartTasks();
+  assert.equal(h.calls.length,2);
+  assert.equal(h.session.get('mystorefront_cart_written'),undefined);
+  assert.equal(h.timers.length,0);
+});
+test('production capture retains its previous immediate success marker',async()=>{
+  const h=createCartConfirmationHarness('live-merchant.myshopify.com',[
+    {ok:true,json:async()=>({attributes:{}})},
+  ]);
+  assert.equal(h.session.get('mystorefront_cart_written'),click);
+  await flushCartTasks();
+  assert.equal(h.calls.length,1);
+  assert.equal(h.timers.length,0);
+});
