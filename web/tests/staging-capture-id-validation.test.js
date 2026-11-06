@@ -35,6 +35,7 @@ function run(shop,query) {
     MutationObserver:class {observe(){}},
   };
   ctx.window.location=ctx.location;
+  ctx.window.Shopify={customerPrivacy:{marketingAllowed:()=>true}};
   vm.runInNewContext(generateCaptureScript(['click_id'],'click_id',30,shop),ctx);
   return {calls,formInputs,storage};
 }
@@ -92,6 +93,7 @@ function createCartConfirmationHarness(shop, responses) {
     MutationObserver:class {observe(){}},
   };
   ctx.window.location=ctx.location;
+  ctx.window.Shopify={customerPrivacy:{marketingAllowed:()=>true}};
   vm.runInNewContext(generateCaptureScript(['click_id'],'click_id',30,shop),ctx);
   return {calls,session,timers,ctx};
 }
@@ -142,4 +144,35 @@ test('production capture retains its previous immediate success marker',async()=
   await flushCartTasks();
   assert.equal(h.calls.length,1);
   assert.equal(h.timers.length,0);
+});
+
+test('staging refuses referral capture if Shopify privacy permission is unavailable or denied',()=>{
+  const source=generateCaptureScript(['click_id'],'click_id',30,'mystorefront-test.myshopify.com');
+  for(const privacy of [undefined,{marketingAllowed:()=>false},{marketingAllowed:()=>null},{marketingAllowed:()=>{throw Error('privacy unavailable')}},{}]){
+    const writes=[];
+    const local=new Map();
+    const context={
+      URLSearchParams,Date,Number,JSON,Math,RegExp,encodeURIComponent,decodeURIComponent,
+      location:{protocol:'https:',search:'?click_id='+click},
+      window:{
+        Shopify:privacy===undefined?undefined:{customerPrivacy:privacy},
+        localStorage:{setItem:(k,v)=>local.set(k,v),getItem:k=>local.get(k)||null},
+        sessionStorage:{getItem:()=>null,setItem:()=>{}},
+      },
+      document:{
+        readyState:'complete',cookie:'',querySelectorAll:()=>[],
+        addEventListener(){},body:{},
+      },
+      fetch:(...args)=>{writes.push(args);return Promise.resolve({ok:true})},
+      MutationObserver:class {observe(){}},
+    };
+    context.window.location=context.location;
+    vm.runInNewContext(source,context);
+    assert.equal(writes.length,0);
+    assert.equal(local.size,0);
+  }
+});
+test('production retains prior capture behavior when Shopify privacy API is missing',()=>{
+  const r=run('another.myshopify.com','?click_id='+click);
+  assert.equal(r.calls.length,1);
 });
