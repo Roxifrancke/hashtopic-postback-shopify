@@ -84,3 +84,22 @@ test("audit proves issuance only, and never leaks secrets",async()=>{
   assert.equal(JSON.stringify(fail).includes(token),false);
   assert.equal(JSON.stringify(pass).includes(clickId),false);
 });
+
+test("proof audit preserves only known bridge failure codes",async()=>{
+  for(const [inputReason,expected] of [
+    ["bridge_unavailable","bridge_unavailable"],
+    ["bridge_rejected","bridge_rejected"],
+    ["invalid_bridge_response","invalid_bridge_response"],
+    ["credential-s3cr3t","verification_failed"],
+  ]){
+    const result=await runBridgeProofAudit({
+      env:validConfig,
+      lookupFactory:()=>async()=>({status:"blocked",reason:inputReason,
+        can_send_postback:false,commission_created:false}),
+    });
+    assert.equal(result.status,"blocked");
+    assert.equal(result.reason,expected);
+    assert.equal(result.can_send_postback,false);
+    assert.equal(result.commission_created,false);
+  }
+});
