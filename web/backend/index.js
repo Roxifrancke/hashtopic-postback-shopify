@@ -55,6 +55,7 @@ import cors from "cors";
 import gdprRouter from "./routes/gdpr.js";
 import { createStagingPixelTransportProbe, stagingPixelProbeEnabled, STAGING_PIXEL_PROBE_PATH } from "./routes/web-pixel-transport-probe.js";
 import { createStagingSyntheticReceiptRouter, stagingSyntheticReceiptEnabled, SYNTHETIC_RECEIPT_PATH } from "./routes/web-pixel-staging-synthetic-receipt.js";
+import { createStagingAffiliatePixelCandidateRouter, stagingAffiliatePixelCandidateEnabled, CANDIDATE_PATH } from "./routes/affiliate-pixel-staging-candidate.js";
 
 const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || "3000", 10);
 const STATIC_PATH =
@@ -111,6 +112,12 @@ if (stagingSyntheticReceiptEnabled()) {
     pool: db,
     secret: process.env.WEB_PIXEL_STAGING_RECEIPT_HASH_KEY,
   }));
+}
+
+// Browser events are untrusted hints, kept isolated on test-shop staging.
+// Never pass pixel candidates directly to the paid-order or postback route.
+if (stagingAffiliatePixelCandidateEnabled()) {
+  app.use(CANDIDATE_PATH, createStagingAffiliatePixelCandidateRouter({pool:db}));
 }
 
 // Cross-origin policy. The embedded admin UI calls this backend same-origin,
