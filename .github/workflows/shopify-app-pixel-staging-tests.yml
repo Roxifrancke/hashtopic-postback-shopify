@@ -1,0 +1,33 @@
+name: Shopify app pixel staging integration tests
+
+on:
+  pull_request:
+    paths:
+      - 'extensions/mystorefront-affiliate-pixel/**'
+      - 'shopify.app.mystorefront-postback.toml'
+      - 'web/backend/web-pixel-activation.js'
+      - 'web/backend/routes/affiliate-pixel-staging-candidate.js'
+      - 'web/backend/staging-pixel-paid-token.js'
+      - 'web/backend/routes/settings.js'
+      - 'web/backend/index.js'
+      - 'web/tests/*pixel*.test.js'
+      - '.github/workflows/shopify-app-pixel-staging-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install backend dependencies
+        working-directory: web
+        run: npm ci
+      - name: Run Web Pixel staging receipt, activation and checkout-token tests
+        working-directory: web
+        run: |
+          node --test             tests/web-pixel-activation.test.js             tests/affiliate-pixel-staging-candidate.test.js             tests/staging-pixel-paid-token.test.js             tests/web-pixel-extension.test.js

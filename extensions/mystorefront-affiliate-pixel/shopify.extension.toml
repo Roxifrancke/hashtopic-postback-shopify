@@ -1,0 +1,25 @@
+type = "web_pixel_extension"
+name = "MyStorefront Affiliate Pixel"
+runtime_context = "strict"
+
+# Shopify CLI must generate and persist the extension uid before deploying.
+# We must not invent a uid by hand.
+
+[customer_privacy]
+analytics = true
+marketing = true
+preferences = false
+sale_of_data = "disabled"
+
+[settings]
+type = "object"
+
+[settings.fields.shop]
+name = "Shopify permanent domain"
+description = "Permanent *.myshopify.com domain set by MyStorefront"
+type = "single_line_text_field"
+
+[settings.fields.endpoint]
+name = "Pixel event receiver"
+description = "MyStorefront backend receipt URL"
+type = "single_line_text_field"
