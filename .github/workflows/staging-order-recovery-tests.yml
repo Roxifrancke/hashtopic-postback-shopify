@@ -1,0 +1,27 @@
+name: Staging paid-order recovery checks
+
+on:
+  pull_request:
+    branches: [staging]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install
+        working-directory: web
+        run: npm install --no-audit --no-fund
+      - name: Test
+        working-directory: web
+        run: npm test
+      - name: Build frontend
+        working-directory: web
+        run: npm run build
+      - name: Verify backend syntax
+        working-directory: web
+        run: node --check backend/routes/deliveries.js

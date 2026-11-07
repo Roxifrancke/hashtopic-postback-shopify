@@ -13,6 +13,8 @@ import {
   Banner,
   Tooltip,
   Box,
+  TextField,
+  InlineStack,
 } from "@shopify/polaris";
 import { RefreshIcon } from "@shopify/polaris-icons";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedFetch";
@@ -45,6 +47,8 @@ export default function DeliveriesPage() {
   const [loading, setLoading] = useState(false);
   const [retrying, setRetrying] = useState(null);
   const [banner, setBanner] = useState(null);
+  const [recoveryOrderId, setRecoveryOrderId] = useState("");
+  const [recovering, setRecovering] = useState(false);
 
   const loadDeliveries = useCallback(async () => {
     setLoading(true);
@@ -79,6 +83,36 @@ export default function DeliveriesPage() {
       setBanner({ status: "critical", message: "Network error during retry." });
     } finally {
       setRetrying(null);
+    }
+  };
+
+  const handleRecover = async () => {
+    const id = recoveryOrderId.trim();
+    if (!/^[1-9][0-9]{0,19}$/.test(id)) {
+      setBanner({ status: "critical", message: "Enter the numeric Shopify order ID from the order URL, not the #1086 display number." });
+      return;
+    }
+    setRecovering(true);
+    setBanner(null);
+    try {
+      const response = await fetch("/api/deliveries/recover", {
+        method: "POST",
+        body: JSON.stringify({ order_id: id }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setBanner({ status: "critical", message: data.error || "Order recovery failed." });
+      } else if (data.recovered) {
+        setBanner({ status: "success", message: "The existing paid order was sent to MyStorefront. No additional Shopify purchase was created." });
+        setRecoveryOrderId("");
+      } else {
+        setBanner({ status: "critical", message: `Order fetched, but delivery is ${data.delivery_status}. Check the delivery record or contact support.` });
+      }
+      await loadDeliveries();
+    } catch {
+      setBanner({ status: "critical", message: "Could not contact the staging app to recover the order." });
+    } finally {
+      setRecovering(false);
     }
   };
 
@@ -136,6 +170,37 @@ export default function DeliveriesPage() {
             </Banner>
           </Layout.Section>
         )}
+
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="300">
+              <Text variant="headingMd" as="h2">Recover an existing paid order</Text>
+              <Text as="p" variant="bodySm">
+                If Shopify missed a paid-order webhook, fetch that order by its numeric
+                ID and send its existing MyStorefront referral. This does not create an order.
+              </Text>
+              <InlineStack align="start" gap="300" blockAlign="end">
+                <div style={{ minWidth: "280px" }}>
+                  <TextField
+                    label="Shopify order ID"
+                    autoComplete="off"
+                    placeholder="e.g. 7274501341249"
+                    value={recoveryOrderId}
+                    onChange={setRecoveryOrderId}
+                    helpText="Copy the number after /orders/ in Shopify Admin. Do not use #1086."
+                  />
+                </div>
+                <Button
+                  onClick={handleRecover}
+                  loading={recovering}
+                  disabled={!recoveryOrderId.trim()}
+                >
+                  Recover paid order
+                </Button>
+              </InlineStack>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
 
         <Layout.Section>
           <Card padding="0">
