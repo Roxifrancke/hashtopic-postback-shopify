@@ -52,12 +52,18 @@ export async function runStagingReadOnlyAudit({
       shop:SHOP,
       clickId:env.WEB_PIXEL_STAGING_AUDIT_CLICK_ID,
     });
+    const verified=result.status==="click_record_verified_pending_consent" &&
+      result.provenance_verified===true &&
+      result.consent_eligible===false &&
+      result.can_send_postback===false &&
+      result.commission_created===false;
+    const unproven=result.status==="click_record_found_unproven";
     return {
-      status:result.status==="click_record_found_unproven"?
-        "record_found_unproven":"blocked",
-      reason:result.status==="click_record_found_unproven"?
-        "server_issuance_not_attested":(result.reason||"source_validation_failed"),
-      provenance_verified:false,
+      status:verified?"provenance_verified_pending_consent":
+        unproven?"record_found_unproven":"blocked",
+      reason:verified?"consent_not_verified":
+        unproven?"server_issuance_not_attested":(result.reason||"source_validation_failed"),
+      provenance_verified:verified,
       consent_eligible:false,
       commission_created:false,can_send_postback:false,
     };
