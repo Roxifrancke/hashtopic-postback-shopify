@@ -11,6 +11,29 @@ import {
 // This checks application-only Shopify GraphQL access; it does not prove that
 // storefront click capture, order webhook delivery or commissions are healthy.
 const PROBE_QUERY = "query MyStorefrontConnectionCheck { shop { myshopifyDomain } }";
+// Read-only query scoped to the currently authenticated app installation.
+// Never return pixel settings or Shopify credentials to MyStorefront.
+const WEB_PIXEL_QUERY = "query MyStorefrontPixelHealth { webPixel { id } }";
+
+export async function probeWebPixel(shop, query = queryShopifyGraphQL, configured = applicationOnlyConfigured) {
+  if (!configured()) return { status: "unavailable", reason: "application_only_not_configured" };
+  try {
+    const data = await query(shop, WEB_PIXEL_QUERY);
+    if (data?.webPixel?.id) return { status: "registered", reason: "pixel_record_found" };
+    if (data && Object.hasOwn(data, "webPixel") && data.webPixel === null) {
+      return { status: "not_registered", reason: "no_pixel_record_for_app" };
+    }
+    return { status: "unavailable", reason: "pixel_result_not_confirmed" };
+  } catch (err) {
+    // Shopify can reject this query if the merchant hasn't approved read_pixels.
+    // Report missing scope separately from an absent pixel, never as proof of
+    // a merchant failing to approve updated permissions.
+    const message = String(err?.message || "");
+    const missingScope = /read_pixels|access denied for webpixel|access denied.*webpixel|not approved.*scope|missing.*scope/i.test(message);
+    return { status: missingScope ? "scope_missing" : "unavailable",
+      reason: missingScope ? "read_pixels_not_granted" : "pixel_query_unavailable" };
+  }
+}
 
 export function secureKeyEquals(stored, provided) {
   if (typeof stored !== "string" || typeof provided !== "string" ||
@@ -49,6 +72,7 @@ export function shopifyHealthRouter(options = {}) {
     return getSettings(shop);
   });
   const probe = options.probe || probeShopifyConnection;
+  const probePixel = options.probePixel || probeWebPixel;
   const loadOAuthTokens = options.getOAuthTokens || (async (shop) => {
     const { getShopifyTokenSet } = await import("../db.js");
     return getShopifyTokenSet(shop);
@@ -79,18 +103,20 @@ export function shopifyHealthRouter(options = {}) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     try {
-      const [result, oauth] = await Promise.all([
+      const [result, oauth, pixel] = await Promise.all([
         probe(shop),
         loadOAuthTokens(shop).then(
           tokens => classifyStoredOAuthTokens(tokens),
           () => ({ status: "unknown", reason: "stored_oauth_check_unavailable" }),
         ),
+        probePixel(shop),
       ]);
       return res.json({
         shop,
         api_auth: result.api_auth,
         reason: result.reason,
         stored_oauth: oauth,
+        web_pixel: pixel,
         checked_at: new Date().toISOString(),
         webhook_delivery: "unverified",
         storefront_capture: "unverified",
