@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import express from "express";
-import { shopifyHealthRouter, secureKeyEquals, probeShopifyConnection } from "../backend/routes/shopify-health.js";
+import { shopifyHealthRouter, secureKeyEquals, probeShopifyConnection, probeWebPixel } from "../backend/routes/shopify-health.js";
 
 test("store-bound keys must match and be nonempty", () => {
   assert.equal(secureKeyEquals("abc", "abc"), true);
@@ -37,6 +37,7 @@ test("health endpoint rejects unauthorised requests and only probes matching sho
     getSettings: async (shop) => shop === "test.myshopify.com"
       ? { mystorefront_api_key: "brand-secret" } : null,
     probe: async () => { probes++; return { api_auth: "verified", reason: "app_only_graphql_success" }; },
+    probePixel: async () => ({ status: "registered", reason: "pixel_record_found" }),
     getOAuthTokens: async () => ({ accessToken: "private-access-token",
       refreshToken: "private-refresh-token",
       accessTokenExpiresAt: new Date(Date.now() - 60000),
@@ -64,6 +65,7 @@ test("health endpoint rejects unauthorised requests and only probes matching sho
     assert.equal(success.status, 200);
     const body = await success.json();
     assert.equal(body.api_auth, "verified");
+    assert.equal(body.web_pixel.status, "registered");
     assert.equal(body.stored_oauth.status, "renewal_required");
     assert.equal(JSON.stringify(body).includes("private-access-token"), false);
     assert.equal(JSON.stringify(body).includes("private-refresh-token"), false);
@@ -73,4 +75,19 @@ test("health endpoint rejects unauthorised requests and only probes matching sho
   } finally {
     await new Promise((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
   }
+});
+
+test("Web Pixel probe distinguishes registered, absent, and missing read scope", async () => {
+  const registered = await probeWebPixel("test.myshopify.com", async () => ({ webPixel: { id: "gid://shopify/WebPixel/123" } }), () => true);
+  assert.equal(registered.status, "registered");
+  const absent = await probeWebPixel("test.myshopify.com", async () => ({ webPixel: null }), () => true);
+  assert.equal(absent.status, "not_registered");
+  const missingScope = await probeWebPixel("test.myshopify.com", async () => {
+    throw new Error("Access denied for webPixel field. Required access: read_pixels");
+  }, () => true);
+  assert.equal(missingScope.status, "scope_missing");
+  const unavailable = await probeWebPixel("test.myshopify.com", async () => {
+    throw new Error("Shopify request timed out");
+  }, () => true);
+  assert.equal(unavailable.status, "unavailable");
 });
