@@ -1,7 +1,22 @@
 query CartValidationsGenerateRunInput {
   cart {
+    attribute(key: "MyStorefront creator") {
+      value
+    }
     lines {
-      quantity
+      attribute(key: "_MyStorefront creator") {
+        value
+      }
+    }
+    discountApplications {
+      metafield(namespace: "$app:mystorefront", key: "code_rule") {
+        value
+      }
+    }
+  }
+  shop {
+    metafield(namespace: "$app:mystorefront", key: "referral_rules") {
+      value
     }
   }
 }
