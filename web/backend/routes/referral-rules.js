@@ -2,7 +2,7 @@ import { Router } from "express";
 import { timingSafeEqual } from "crypto";
 import { getSettings } from "../db.js";
 import { getValidAccessToken } from "../shopify-auth.js";
-import { tagAllCodes, ensureValidation } from "../referral-tagging.js";
+import { tagAllCodes, ensureValidation, ensureRejectDiscount } from "../referral-tagging.js";
 
 // Stores a brand's creator discount code rules on the shop so the checkout
 // validation function and the theme embed can read them. MyStorefront sends
@@ -111,7 +111,15 @@ export default function referralRulesRouter(shopify) {
       }
       const tagging = await tagAllCodes(shop, token, rules).catch((e) => ({ status: "error", error: e?.message }));
       const validation = await ensureValidation(shop, token).catch((e) => ({ status: "error", error: e?.message }));
-      return res.json({ ok: true, block: rules.block, code_count: Object.keys(rules.codes).length, tagging, validation });
+      const removal = await ensureRejectDiscount(shop, token).catch((e) => ({ status: "error", error: e?.message }));
+      return res.json({
+        ok: true,
+        block: rules.block,
+        code_count: Object.keys(rules.codes).length,
+        tagging,
+        validation,
+        removal,
+      });
     } catch (err) {
       console.error(`[MS RULES] Save error for ${shop}:`, err?.message || err);
       return res.status(500).json({ error: "Could not save rules" });

@@ -8,8 +8,8 @@ const TAG_KEY = "code_rule";
 const RULES_KEY = "referral_rules";
 const FUNCTION_TITLE = "Creator code check";
 
-async function gql(shop, token, query, variables) {
-  const res = await fetch(`https://${shop}/admin/api/${API_VERSION}/graphql.json`, {
+async function gql(shop, token, query, variables, version = API_VERSION) {
+  const res = await fetch(`https://${shop}/admin/api/${version}/graphql.json`, {
     method: "POST",
     headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
     body: JSON.stringify({ query, variables }),
@@ -136,7 +136,103 @@ export async function ensureValidation(shop, token) {
       );
   const res = await mutation;
   const ue = res.json?.data?.validationUpdate?.userErrors || res.json?.data?.validationCreate?.userErrors || [];
-  if (!res.ok || ue.length || res.json?.errors) return { status: "activate_failed", errors: ue.length ? ue : res.json?.errors };
+  if (!res.ok || ue.length || res.json?.errors) {
+    return { status: notEligible(ue) ? "not_eligible" : "activate_failed", errors: ue.length ? ue : res.json?.errors };
+  }
   activated.add(shop);
   return { status: existing ? "re_enabled" : "created" };
+}
+
+// ── Auto-remove: a hidden automatic discount that runs the "Creator code
+// remove" function. Shopify only lets automatic discounts reject codes, so
+// this gives the function a place to run. It never discounts anything.
+const REMOVE_FUNCTION_TITLE = "Creator code remove";
+const REMOVE_DISCOUNT_TITLE = "MyStorefront creator code check (do not delete)";
+const DISCOUNT_API_VERSION = "2026-01";
+const removeActivated = new Set();
+
+// Custom apps can only run functions on Shopify Plus stores. Report that
+// clearly so MyStorefront can tell the brand the setting isn't available.
+function notEligible(errors) {
+  return (errors || []).some(
+    (e) => String(e?.code || "").includes("NOT_ELIGIBLE") || /plus plan/i.test(String(e?.message || "")),
+  );
+}
+
+export async function ensureRejectDiscount(shop, token) {
+  if (removeActivated.has(shop)) return { status: "already_confirmed" };
+
+  const out = await gql(
+    shop,
+    token,
+    `query {
+      shopifyFunctions(first: 50) { nodes { id title } }
+      automaticDiscountNodes(first: 100) {
+        nodes {
+          id
+          automaticDiscount {
+            ... on DiscountAutomaticApp { title status appDiscountType { functionId } }
+          }
+        }
+      }
+    }`,
+    undefined,
+    DISCOUNT_API_VERSION,
+  );
+  if (!out.ok || out.json?.errors) return { status: "query_failed", errors: out.json?.errors || null };
+
+  const fn = (out.json?.data?.shopifyFunctions?.nodes || []).find((f) => f.title === REMOVE_FUNCTION_TITLE);
+  if (!fn) return { status: "function_not_deployed" };
+
+  const existing = (out.json?.data?.automaticDiscountNodes?.nodes || []).find(
+    (n) => n?.automaticDiscount?.appDiscountType?.functionId === fn.id,
+  );
+
+  if (existing && existing.automaticDiscount?.status === "ACTIVE") {
+    removeActivated.add(shop);
+    return { status: "active" };
+  }
+
+  if (existing) {
+    const res = await gql(
+      shop,
+      token,
+      `mutation($id: ID!) { discountAutomaticActivate(id: $id) { userErrors { field message code } } }`,
+      { id: existing.id },
+      DISCOUNT_API_VERSION,
+    );
+    const ue = res.json?.data?.discountAutomaticActivate?.userErrors || [];
+    if (!res.ok || ue.length || res.json?.errors) {
+      return { status: notEligible(ue) ? "not_eligible" : "activate_failed", errors: ue.length ? ue : res.json?.errors };
+    }
+    removeActivated.add(shop);
+    return { status: "re_activated" };
+  }
+
+  const res = await gql(
+    shop,
+    token,
+    `mutation($d: DiscountAutomaticAppInput!) {
+      discountAutomaticAppCreate(automaticAppDiscount: $d) {
+        automaticAppDiscount { discountId }
+        userErrors { field message code }
+      }
+    }`,
+    {
+      d: {
+        title: REMOVE_DISCOUNT_TITLE,
+        functionId: fn.id,
+        discountClasses: ["ORDER", "PRODUCT"],
+        startsAt: new Date().toISOString(),
+        combinesWith: { orderDiscounts: true, productDiscounts: true, shippingDiscounts: true },
+      },
+    },
+    DISCOUNT_API_VERSION,
+  );
+  const ue = res.json?.data?.discountAutomaticAppCreate?.userErrors || [];
+  if (!res.ok || ue.length || res.json?.errors) {
+    return { status: notEligible(ue) ? "not_eligible" : "create_failed", errors: ue.length ? ue : res.json?.errors };
+  }
+  removeActivated.add(shop);
+  return { status: "created" };
 }

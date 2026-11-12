@@ -4,7 +4,7 @@
 // for a creator's own code, or { "creator": null } for an unassigned code.
 // Untagged discounts (automatic sales) are never blocked.
 
-const MESSAGE = "Discount codes can't be used with creator referrals.";
+const MESSAGE = "This discount code can't be used with a creator link. Please remove it to continue.";
 const NONE = { operations: [] };
 
 function parse(value) {
