@@ -44,7 +44,13 @@ pixelScriptRouter.get(["/capture.js", "/:shop/capture.js"], async (req, res) => 
 
 function generateCaptureScript(paramNames, cookieName, cookieDays) {
   return `
-/* MyStorefront Postback — Click ID Capture v1.5.0
+/* MyStorefront Postback — Click ID Capture v1.6.0
+ *
+ * v1.6 changes:
+ *   - Capture the creator ref (ms_ref) that arrives with a click_id and store
+ *     it as cart attribute "MyStorefront creator" and hidden line item
+ *     property "_MyStorefront creator" (so Buy It Now keeps it too).
+ *     A new click with no ref clears the old one.
  *
  * v1.5 changes:
  *   - Respect an explicit "do not track" decision via Shopify's Customer
@@ -93,6 +99,38 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
   // session instead of on every page load (repeated /cart/update.js writes
   // make some themes re-render or flash the cart drawer as the shopper browses).
   var CART_WRITE_FLAG = 'mystorefront_cart_written';
+
+  // Creator ref. Only read from a URL that also carries a click_id, so an
+  // unrelated ref param from another site can never tag a cart.
+  var CREATOR_PARAM = 'ms_ref';
+  var CREATOR_STORAGE_KEY = 'mystorefront_creator_ref';
+  var CREATOR_LINE_PROP = '_MyStorefront creator';
+  var CREATOR_FORM_INPUT = 'properties[' + CREATOR_LINE_PROP + ']';
+  var CREATOR_ATTR_NAME = 'MyStorefront creator';
+  var CREATOR_REF_RE = /^[A-Za-z0-9._-]{1,64}$/;
+
+  function getCreatorFromUrl() {
+    try {
+      var v = new URLSearchParams(window.location.search).get(CREATOR_PARAM);
+      v = v ? v.trim() : '';
+      return CREATOR_REF_RE.test(v) ? v : null;
+    } catch(e) { return null; }
+  }
+
+  function getStoredCreator() {
+    try {
+      var v = window.localStorage && window.localStorage.getItem(CREATOR_STORAGE_KEY);
+      return v && CREATOR_REF_RE.test(v) ? v : null;
+    } catch(e) { return null; }
+  }
+
+  function setStoredCreator(value) {
+    try {
+      if (!window.localStorage) return;
+      if (value) window.localStorage.setItem(CREATOR_STORAGE_KEY, value);
+      else window.localStorage.removeItem(CREATOR_STORAGE_KEY);
+    } catch(e) {}
+  }
 
   // ── Consent ──────────────────────────────────────────────────────────────
   // Respect an explicit decline via Shopify's Customer Privacy API. When the
@@ -173,6 +211,7 @@ function getStoredClickId() {
         window.localStorage.removeItem(STORAGE_KEY);
         window.localStorage.removeItem(STORAGE_TS_KEY);
         setCookie(COOKIE_NAME, '', -1);
+        window.localStorage.removeItem(CREATOR_STORAGE_KEY);
         return null;
       }
     }
@@ -191,23 +230,26 @@ function getStoredClickId() {
    * primary attribution channel, but this still helps stores that have not
    * yet rolled out the form-injection path on every product template.
    */
-  function writeToCart(clickId) {
+  function writeToCart(clickId, creatorRef) {
     try {
       var ss = null;
       try { ss = window.sessionStorage; } catch (e) {}
-      // Skip if we've already written this click_id to the cart this session.
+      // Skip if this exact click_id + creator pair is already on the cart this session.
+      var flag = clickId + '|' + (creatorRef || '');
       if (ss) {
-        try { if (ss.getItem(CART_WRITE_FLAG) === clickId) return; } catch (e) {}
+        try { if (ss.getItem(CART_WRITE_FLAG) === flag) return; } catch (e) {}
       }
       var attrs = {};
       attrs[CART_ATTR_NAME] = clickId;
+      // An empty value removes a creator ref left over from an earlier click.
+      attrs[CREATOR_ATTR_NAME] = creatorRef || '';
       fetch('/cart/update.js', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ attributes: attrs })
       }).catch(function() {});
       if (ss) {
-        try { ss.setItem(CART_WRITE_FLAG, clickId); } catch (e) {}
+        try { ss.setItem(CART_WRITE_FLAG, flag); } catch (e) {}
       }
     } catch(e) {}
   }
@@ -238,26 +280,39 @@ function getStoredClickId() {
    * overwrite it. This protects custom merchant flows that may already be
    * setting click_id explicitly and means re-running injection is safe.
    */
-  function injectIntoForm(form, clickId) {
+  function injectIntoForm(form, clickId, creatorRef) {
     if (!form || !clickId) return;
 
     // Already has properties[click_id]? Don't touch it.
-    var existing = form.querySelector('input[name="' + FORM_INPUT_NAME + '"]');
-    if (existing) return;
+    if (!form.querySelector('input[name="' + FORM_INPUT_NAME + '"]')) {
+      var input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = FORM_INPUT_NAME;
+      input.value = clickId;
+      input.setAttribute('data-mystorefront-postback', '1');
+      form.appendChild(input);
+    }
 
-    var input = document.createElement('input');
-    input.type = 'hidden';
-    input.name = FORM_INPUT_NAME;
-    input.value = clickId;
-    input.setAttribute('data-mystorefront-postback', '1');
-    form.appendChild(input);
+    if (!creatorRef) return;
+    var existingCreator = form.querySelector('input[name="' + CREATOR_FORM_INPUT + '"]');
+    if (existingCreator) {
+      // Only refresh an input we placed ourselves.
+      if (existingCreator.hasAttribute('data-mystorefront-postback')) existingCreator.value = creatorRef;
+      return;
+    }
+    var creatorInput = document.createElement('input');
+    creatorInput.type = 'hidden';
+    creatorInput.name = CREATOR_FORM_INPUT;
+    creatorInput.value = creatorRef;
+    creatorInput.setAttribute('data-mystorefront-postback', '1');
+    form.appendChild(creatorInput);
   }
 
-  function injectIntoAllForms(clickId) {
+  function injectIntoAllForms(clickId, creatorRef) {
     if (!clickId) return;
     var forms = document.querySelectorAll('form');
     for (var i = 0; i < forms.length; i++) {
-      if (isProductForm(forms[i])) injectIntoForm(forms[i], clickId);
+      if (isProductForm(forms[i])) injectIntoForm(forms[i], clickId, creatorRef);
     }
   }
 
@@ -266,7 +321,7 @@ function getStoredClickId() {
    * modals, drawer carts that re-render product cards, etc.) and inject
    * into them as they appear.
    */
-  function startMutationObserver(clickId) {
+  function startMutationObserver(clickId, creatorRef) {
     if (typeof MutationObserver === 'undefined' || !clickId) return;
 
     var observer = new MutationObserver(function(mutations) {
@@ -278,15 +333,13 @@ function getStoredClickId() {
           var node = added[j];
           if (node.nodeType !== 1) continue; // ELEMENT_NODE only
 
-          // The added node itself might be a product form…
           if (isProductForm(node)) {
-            injectIntoForm(node, clickId);
+            injectIntoForm(node, clickId, creatorRef);
           }
-          // …or it might contain product forms (e.g. a modal wrapper).
           if (node.querySelectorAll) {
             var nested = node.querySelectorAll('form');
             for (var k = 0; k < nested.length; k++) {
-              if (isProductForm(nested[k])) injectIntoForm(nested[k], clickId);
+              if (isProductForm(nested[k])) injectIntoForm(nested[k], clickId, creatorRef);
             }
           }
         }
@@ -312,6 +365,8 @@ function getStoredClickId() {
     if (fromUrl) {
       setCookie(COOKIE_NAME, fromUrl, COOKIE_DAYS);
       setLocalStorage(fromUrl, timestamp);
+      // A new click replaces the creator ref. A link without one clears it.
+      setStoredCreator(getCreatorFromUrl());
     } else if (clickId) {
       // Heal a localStorage-only or cookie-only state back into both.
       var remaining = Math.max(0, COOKIE_DAYS - (Date.now() - timestamp) / 864e5);
@@ -320,11 +375,15 @@ function getStoredClickId() {
     }
 
     // Nothing to attribute → no cart write, no form injection, no observer.
-    if (!clickId) return;
+    if (!clickId) {
+      setStoredCreator(null);
+      return;
+    }
 
-    writeToCart(clickId);          // backward-compat fallback (once per session)
-    injectIntoAllForms(clickId);   // primary attribution channel
-    startMutationObserver(clickId);
+    var creatorRef = getStoredCreator();
+    writeToCart(clickId, creatorRef);          // backward-compat fallback (once per session)
+    injectIntoAllForms(clickId, creatorRef);   // primary attribution channel
+    startMutationObserver(clickId, creatorRef);
   }
 
   if (document.readyState === 'loading') {
