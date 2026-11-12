@@ -182,16 +182,25 @@ function isOurs(node, fnId) {
   );
 }
 
+// discountNodes lists every automatic discount, including app discounts.
+// Its ids are generic, so convert them to automatic discount ids for the
+// delete, update and activate mutations (the number is the same).
+function toAutomaticId(id) {
+  const num = String(id || "").split("/").pop();
+  return `gid://shopify/DiscountAutomaticNode/${num}`;
+}
+
 async function findRemoveDiscounts(shop, token) {
   const out = await gql(
     shop,
     token,
     `query {
       shopifyFunctions(first: 50) { nodes { id title } }
-      automaticDiscountNodes(first: 100) {
+      discountNodes(first: 100, query: "method:automatic") {
         nodes {
           id
-          automaticDiscount {
+          discount {
+            __typename
             ... on DiscountAutomaticApp { title status appDiscountType { functionId title } }
           }
         }
@@ -205,8 +214,13 @@ async function findRemoveDiscounts(shop, token) {
   const fn = (out.json?.data?.shopifyFunctions?.nodes || []).find((f) => f.title === REMOVE_FUNCTION_TITLE);
   if (!fn) return { error: { status: "function_not_deployed" } };
 
-  const mine = (out.json?.data?.automaticDiscountNodes?.nodes || []).filter((n) => isOurs(n, fn.id));
-  return { fn, mine };
+  const nodes = (out.json?.data?.discountNodes?.nodes || []).map((n) => ({
+    id: toAutomaticId(n.id),
+    automaticDiscount: n.discount,
+  }));
+  const mine = nodes.filter((n) => isOurs(n, fn.id));
+  const seen = nodes.map((n) => ({ type: n.automaticDiscount?.__typename || null, title: n.automaticDiscount?.title || null }));
+  return { fn, mine, seen };
 }
 
 async function deleteDiscount(shop, token, id) {
@@ -228,7 +242,7 @@ async function deleteDiscount(shop, token, id) {
 export async function ensureRejectDiscount(shop, token, wanted) {
   const found = await findRemoveDiscounts(shop, token);
   if (found.error) return found.error;
-  const { fn, mine } = found;
+  const { fn, mine, seen } = found;
 
   if (!wanted) {
     if (mine.length === 0) return { status: "not_needed" };
@@ -296,6 +310,6 @@ export async function ensureRejectDiscount(shop, token, wanted) {
     DISCOUNT_API_VERSION,
   );
   const ue = res.json?.data?.discountAutomaticAppCreate?.userErrors || [];
-  if (!res.ok || ue.length || res.json?.errors) return failure(res, ue, "create_failed");
+  if (!res.ok || ue.length || res.json?.errors) return { ...failure(res, ue, "create_failed"), seen };
   return { status: "created" };
 }
