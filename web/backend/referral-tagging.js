@@ -164,7 +164,25 @@ function failure(res, ue, fallback) {
   return { status: notEligible(ue) ? "not_eligible" : fallback, errors: ue.length ? ue : res.json?.errors || null };
 }
 
-async function findRemoveDiscount(shop, token) {
+// Titles this rule has had, so older copies are still recognised.
+const OLD_DISCOUNT_TITLES = ["MyStorefront creator code check (do not delete)"];
+
+// The function id format can differ between APIs, so also match by the
+// function's name and by our own titles.
+function isOurs(node, fnId) {
+  const d = node?.automaticDiscount;
+  if (!d) return false;
+  const fid = String(d.appDiscountType?.functionId || "");
+  const idMatch = Boolean(fnId && fid && (fid === fnId || fid.endsWith(`/${fnId}`) || fnId.endsWith(`/${fid}`)));
+  return (
+    idMatch ||
+    d.appDiscountType?.title === REMOVE_FUNCTION_TITLE ||
+    d.title === REMOVE_DISCOUNT_TITLE ||
+    OLD_DISCOUNT_TITLES.includes(d.title)
+  );
+}
+
+async function findRemoveDiscounts(shop, token) {
   const out = await gql(
     shop,
     token,
@@ -174,7 +192,7 @@ async function findRemoveDiscount(shop, token) {
         nodes {
           id
           automaticDiscount {
-            ... on DiscountAutomaticApp { title status appDiscountType { functionId } }
+            ... on DiscountAutomaticApp { title status appDiscountType { functionId title } }
           }
         }
       }
@@ -187,62 +205,74 @@ async function findRemoveDiscount(shop, token) {
   const fn = (out.json?.data?.shopifyFunctions?.nodes || []).find((f) => f.title === REMOVE_FUNCTION_TITLE);
   if (!fn) return { error: { status: "function_not_deployed" } };
 
-  const existing = (out.json?.data?.automaticDiscountNodes?.nodes || []).find(
-    (n) => n?.automaticDiscount?.appDiscountType?.functionId === fn.id,
+  const mine = (out.json?.data?.automaticDiscountNodes?.nodes || []).filter((n) => isOurs(n, fn.id));
+  return { fn, mine };
+}
+
+async function deleteDiscount(shop, token, id) {
+  const res = await gql(
+    shop,
+    token,
+    `mutation($id: ID!) {
+      discountAutomaticDelete(id: $id) { deletedAutomaticDiscountId userErrors { field message code } }
+    }`,
+    { id },
+    DISCOUNT_API_VERSION,
   );
-  return { fn, existing };
+  const ue = res.json?.data?.discountAutomaticDelete?.userErrors || [];
+  if (!res.ok || ue.length || res.json?.errors) return failure(res, ue, "remove_failed");
+  return null;
 }
 
 // wanted = true while the brand blocks codes on creator links, false on allow.
 export async function ensureRejectDiscount(shop, token, wanted) {
-  const found = await findRemoveDiscount(shop, token);
+  const found = await findRemoveDiscounts(shop, token);
   if (found.error) return found.error;
-  const { fn, existing } = found;
+  const { fn, mine } = found;
 
   if (!wanted) {
-    if (!existing) return { status: "not_needed" };
-    const res = await gql(
-      shop,
-      token,
-      `mutation($id: ID!) {
-        discountAutomaticDelete(id: $id) { deletedAutomaticDiscountId userErrors { field message code } }
-      }`,
-      { id: existing.id },
-      DISCOUNT_API_VERSION,
-    );
-    const ue = res.json?.data?.discountAutomaticDelete?.userErrors || [];
-    if (!res.ok || ue.length || res.json?.errors) return failure(res, ue, "remove_failed");
-    return { status: "removed" };
+    if (mine.length === 0) return { status: "not_needed" };
+    for (const node of mine) {
+      const err = await deleteDiscount(shop, token, node.id);
+      if (err) return err;
+    }
+    return { status: "removed", count: mine.length };
   }
 
-  if (existing) {
-    if (existing.automaticDiscount?.title !== REMOVE_DISCOUNT_TITLE) {
+  // Keep one, delete any extra copies.
+  const [keep, ...extra] = mine;
+  for (const node of extra) {
+    const err = await deleteDiscount(shop, token, node.id);
+    if (err) return err;
+  }
+
+  if (keep) {
+    if (keep.automaticDiscount?.title !== REMOVE_DISCOUNT_TITLE) {
       const res = await gql(
         shop,
         token,
         `mutation($id: ID!, $d: DiscountAutomaticAppInput!) {
           discountAutomaticAppUpdate(id: $id, automaticAppDiscount: $d) { userErrors { field message code } }
         }`,
-        { id: existing.id, d: { title: REMOVE_DISCOUNT_TITLE } },
+        { id: keep.id, d: { title: REMOVE_DISCOUNT_TITLE } },
         DISCOUNT_API_VERSION,
       );
       const ue = res.json?.data?.discountAutomaticAppUpdate?.userErrors || [];
       if (!res.ok || ue.length || res.json?.errors) return failure(res, ue, "rename_failed");
     }
 
-    if (existing.automaticDiscount?.status !== "ACTIVE") {
+    if (keep.automaticDiscount?.status !== "ACTIVE") {
       const res = await gql(
         shop,
         token,
         `mutation($id: ID!) { discountAutomaticActivate(id: $id) { userErrors { field message code } } }`,
-        { id: existing.id },
+        { id: keep.id },
         DISCOUNT_API_VERSION,
       );
       const ue = res.json?.data?.discountAutomaticActivate?.userErrors || [];
       if (!res.ok || ue.length || res.json?.errors) return failure(res, ue, "activate_failed");
-      return { status: "re_activated" };
     }
-    return { status: "active" };
+    return { status: extra.length ? "deduped" : "active", removed_extra: extra.length };
   }
 
   const res = await gql(
