@@ -47,7 +47,7 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
 /* MyStorefront Postback — Click ID Capture v1.6.0
  *
  * v1.6 changes:
- *   - Capture the creator ref (ms_ref) that arrives with a click_id and store
+ *   - Capture the creator ref (ref) that arrives with a click_id and store
  *     it as cart attribute "MyStorefront creator" and hidden line item
  *     property "_MyStorefront creator" (so Buy It Now keeps it too).
  *     A new click with no ref clears the old one.
@@ -102,7 +102,7 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
 
   // Creator ref. Only read from a URL that also carries a click_id, so an
   // unrelated ref param from another site can never tag a cart.
-  var CREATOR_PARAM = 'ms_ref';
+  var CREATOR_PARAM = 'ref';
   var CREATOR_STORAGE_KEY = 'mystorefront_creator_ref';
   var CREATOR_LINE_PROP = '_MyStorefront creator';
   var CREATOR_FORM_INPUT = 'properties[' + CREATOR_LINE_PROP + ']';
