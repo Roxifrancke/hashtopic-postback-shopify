@@ -26,3 +26,8 @@ use_legacy_install_flow = false
 redirect_urls = [
   "https://hashtopic-postback-shopify-staging.onrender.com/api/auth/callback"
 ]
+
+[app_proxy]
+url = "https://hashtopic-postback-shopify-staging.onrender.com/proxy"
+subpath = "mystorefront"
+prefix = "apps"
