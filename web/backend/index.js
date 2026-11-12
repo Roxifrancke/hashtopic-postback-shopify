@@ -48,6 +48,7 @@ import { startRetryWorker } from "./retry-worker.js";
 import { pixelScriptRouter } from "./routes/pixel-script.js";
 import discountCodesRouter from "./routes/discount-codes.js";
 import referralRulesRouter from "./routes/referral-rules.js";
+import { appProxyRouter } from "./routes/app-proxy.js";
 import { shopifyHealthRouter } from "./routes/shopify-health.js";
 import cors from "cors";
 import gdprRouter from "./routes/gdpr.js";
@@ -313,6 +314,9 @@ app.use("/api/discount-codes", discountCodesRouter(shopify));
 
 // ── MyStorefront-facing creator code rules — key-authed, BEFORE session middleware
 app.use("/api/referral-rules", referralRulesRouter(shopify));
+
+// ── Shopify app proxy (store.com/apps/mystorefront/*). Signed by Shopify.
+app.use("/proxy", appProxyRouter());
 
 // SECURITY: Session middleware for merchant-facing routes. Every /api call
 // below this point must carry a valid Shopify session-token JWT (the App Bridge
