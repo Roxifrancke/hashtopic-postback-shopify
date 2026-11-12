@@ -111,7 +111,7 @@ export default function referralRulesRouter(shopify) {
       }
       const tagging = await tagAllCodes(shop, token, rules).catch((e) => ({ status: "error", error: e?.message }));
       const validation = await ensureValidation(shop, token).catch((e) => ({ status: "error", error: e?.message }));
-      const removal = await ensureRejectDiscount(shop, token).catch((e) => ({ status: "error", error: e?.message }));
+      const removal = await ensureRejectDiscount(shop, token, rules.block).catch((e) => ({ status: "error", error: e?.message }));
       return res.json({
         ok: true,
         block: rules.block,

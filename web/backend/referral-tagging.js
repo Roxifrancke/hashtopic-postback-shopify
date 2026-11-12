@@ -143,13 +143,14 @@ export async function ensureValidation(shop, token) {
   return { status: existing ? "re_enabled" : "created" };
 }
 
-// ── Auto-remove: a hidden automatic discount that runs the "Creator code
-// remove" function. Shopify only lets automatic discounts reject codes, so
-// this gives the function a place to run. It never discounts anything.
-const REMOVE_FUNCTION_TITLE = "Creator code remove";
-const REMOVE_DISCOUNT_TITLE = "MyStorefront creator code check (do not delete)";
+// ── Auto-remove: an automatic discount that runs the "MyStorefront creator
+// link rules" function. Shopify only lets automatic discounts reject codes,
+// so this gives the function a place to run. It never discounts anything.
+// It only exists while the brand has a blocking option on, and is deleted
+// when they switch back to allowing codes.
+const REMOVE_FUNCTION_TITLE = "MyStorefront creator link rules";
+const REMOVE_DISCOUNT_TITLE = "MyStorefront creator links (gives no discount, don't delete)";
 const DISCOUNT_API_VERSION = "2026-01";
-const removeActivated = new Set();
 
 // Custom apps can only run functions on Shopify Plus stores. Report that
 // clearly so MyStorefront can tell the brand the setting isn't available.
@@ -159,9 +160,11 @@ function notEligible(errors) {
   );
 }
 
-export async function ensureRejectDiscount(shop, token) {
-  if (removeActivated.has(shop)) return { status: "already_confirmed" };
+function failure(res, ue, fallback) {
+  return { status: notEligible(ue) ? "not_eligible" : fallback, errors: ue.length ? ue : res.json?.errors || null };
+}
 
+async function findRemoveDiscount(shop, token) {
   const out = await gql(
     shop,
     token,
@@ -179,34 +182,67 @@ export async function ensureRejectDiscount(shop, token) {
     undefined,
     DISCOUNT_API_VERSION,
   );
-  if (!out.ok || out.json?.errors) return { status: "query_failed", errors: out.json?.errors || null };
+  if (!out.ok || out.json?.errors) return { error: { status: "query_failed", errors: out.json?.errors || null } };
 
   const fn = (out.json?.data?.shopifyFunctions?.nodes || []).find((f) => f.title === REMOVE_FUNCTION_TITLE);
-  if (!fn) return { status: "function_not_deployed" };
+  if (!fn) return { error: { status: "function_not_deployed" } };
 
   const existing = (out.json?.data?.automaticDiscountNodes?.nodes || []).find(
     (n) => n?.automaticDiscount?.appDiscountType?.functionId === fn.id,
   );
+  return { fn, existing };
+}
 
-  if (existing && existing.automaticDiscount?.status === "ACTIVE") {
-    removeActivated.add(shop);
-    return { status: "active" };
-  }
+// wanted = true while the brand blocks codes on creator links, false on allow.
+export async function ensureRejectDiscount(shop, token, wanted) {
+  const found = await findRemoveDiscount(shop, token);
+  if (found.error) return found.error;
+  const { fn, existing } = found;
 
-  if (existing) {
+  if (!wanted) {
+    if (!existing) return { status: "not_needed" };
     const res = await gql(
       shop,
       token,
-      `mutation($id: ID!) { discountAutomaticActivate(id: $id) { userErrors { field message code } } }`,
+      `mutation($id: ID!) {
+        discountAutomaticDelete(id: $id) { deletedAutomaticDiscountId userErrors { field message code } }
+      }`,
       { id: existing.id },
       DISCOUNT_API_VERSION,
     );
-    const ue = res.json?.data?.discountAutomaticActivate?.userErrors || [];
-    if (!res.ok || ue.length || res.json?.errors) {
-      return { status: notEligible(ue) ? "not_eligible" : "activate_failed", errors: ue.length ? ue : res.json?.errors };
+    const ue = res.json?.data?.discountAutomaticDelete?.userErrors || [];
+    if (!res.ok || ue.length || res.json?.errors) return failure(res, ue, "remove_failed");
+    return { status: "removed" };
+  }
+
+  if (existing) {
+    if (existing.automaticDiscount?.title !== REMOVE_DISCOUNT_TITLE) {
+      const res = await gql(
+        shop,
+        token,
+        `mutation($id: ID!, $d: DiscountAutomaticAppInput!) {
+          discountAutomaticAppUpdate(id: $id, automaticAppDiscount: $d) { userErrors { field message code } }
+        }`,
+        { id: existing.id, d: { title: REMOVE_DISCOUNT_TITLE } },
+        DISCOUNT_API_VERSION,
+      );
+      const ue = res.json?.data?.discountAutomaticAppUpdate?.userErrors || [];
+      if (!res.ok || ue.length || res.json?.errors) return failure(res, ue, "rename_failed");
     }
-    removeActivated.add(shop);
-    return { status: "re_activated" };
+
+    if (existing.automaticDiscount?.status !== "ACTIVE") {
+      const res = await gql(
+        shop,
+        token,
+        `mutation($id: ID!) { discountAutomaticActivate(id: $id) { userErrors { field message code } } }`,
+        { id: existing.id },
+        DISCOUNT_API_VERSION,
+      );
+      const ue = res.json?.data?.discountAutomaticActivate?.userErrors || [];
+      if (!res.ok || ue.length || res.json?.errors) return failure(res, ue, "activate_failed");
+      return { status: "re_activated" };
+    }
+    return { status: "active" };
   }
 
   const res = await gql(
@@ -230,9 +266,6 @@ export async function ensureRejectDiscount(shop, token) {
     DISCOUNT_API_VERSION,
   );
   const ue = res.json?.data?.discountAutomaticAppCreate?.userErrors || [];
-  if (!res.ok || ue.length || res.json?.errors) {
-    return { status: notEligible(ue) ? "not_eligible" : "create_failed", errors: ue.length ? ue : res.json?.errors };
-  }
-  removeActivated.add(shop);
+  if (!res.ok || ue.length || res.json?.errors) return failure(res, ue, "create_failed");
   return { status: "created" };
 }
