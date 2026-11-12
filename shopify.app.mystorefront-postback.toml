@@ -13,7 +13,7 @@ api_version = "2025-04"
   uri = "/api/webhooks"
 
   [[webhooks.subscriptions]]
-  topics = [ "discounts/create", "discounts/update" ]
+  topics = [ "discounts/create", "discounts/update", "discounts/delete" ]
   uri = "/api/webhooks"
 
   [[webhooks.subscriptions]]

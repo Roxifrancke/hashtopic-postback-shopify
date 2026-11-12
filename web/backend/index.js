@@ -42,7 +42,7 @@ import {
   provisionOfflineTokenFromSession,
   getValidAccessToken,
 } from "./shopify-auth.js";
-import { tagOneDiscount } from "./referral-tagging.js";
+import { tagOneDiscount, readRules, ensureRejectDiscount } from "./referral-tagging.js";
 import settingsRouter from "./routes/settings.js";
 import deliveriesRouter from "./routes/deliveries.js";
 import webhookHandlers from "./webhooks/index.js";
@@ -269,14 +269,25 @@ app.post("/api/webhooks", express.text({ type: "*/*" }), async (req, res) => {
       await webhookHandlers.ordersUpdated(topic, shop, req.body);
     } else if (topic === "refunds/create") {
       await webhookHandlers.refundsCreate(topic, shop, req.body, undefined, shopify);
-    } else if (topic === "discounts/create" || topic === "discounts/update") {
-      // Tag the new or edited code for the creator code check. Never blocks the ack.
+    } else if (topic === "discounts/create" || topic === "discounts/update" || topic === "discounts/delete") {
+      // Code discounts: tag them for the creator code check.
+      // Automatic discounts: if the brand deleted, paused or renamed our creator
+      // link rule while blocking codes, put it straight back. Never blocks the ack.
       let gid = null;
       try { gid = JSON.parse(req.body)?.admin_graphql_api_id || null; } catch {}
       getValidAccessToken(shopify, shop)
-        .then((token) => (token && gid ? tagOneDiscount(shop, token, gid) : null))
-        .then((r) => r && console.log(`[MS RULES] Tag ${gid} for ${shop}: ${r.status}`))
-        .catch((err) => console.warn(`[MS RULES] Tag failed for ${shop}:`, err?.message || err));
+        .then(async (token) => {
+          if (!token || !gid) return null;
+          if (String(gid).includes("DiscountAutomaticNode")) {
+            const rules = await readRules(shop, token);
+            if (!rules?.block) return { status: "rules_not_blocking" };
+            return ensureRejectDiscount(shop, token, true);
+          }
+          if (topic === "discounts/delete") return null;
+          return tagOneDiscount(shop, token, gid);
+        })
+        .then((r) => r && console.log(`[MS RULES] ${topic} ${gid} for ${shop}: ${r.status}`))
+        .catch((err) => console.warn(`[MS RULES] ${topic} failed for ${shop}:`, err?.message || err));
     }
     res.status(200).send("OK");
   } catch (err) {
