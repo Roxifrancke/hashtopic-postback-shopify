@@ -352,6 +352,50 @@ function getStoredClickId() {
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
+  // ── Hide our item notes on older themes ──────────────────────────────────
+  // Current themes skip line item properties starting with "_". Some older
+  // themes print every property, so hide just the rows that contain nothing
+  // but our MyStorefront notes. Display only: tracking is unaffected.
+  var MS_ROW_RE = /_*MyStorefront (?:click_id|Creator Referral|creator)\\s*:?\\s*[A-Za-z0-9._-]*/g;
+
+  function onlyOurText(el) {
+    var t = (el.textContent || '').replace(MS_ROW_RE, '');
+    return t.replace(/[\\s:]/g, '') === '';
+  }
+
+  function hideOurLines(scope) {
+    try {
+      if (!scope || typeof document.createTreeWalker !== 'function') return;
+      var walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, null);
+      var hits = [];
+      var node;
+      while ((node = walker.nextNode())) {
+        if (node.nodeValue && node.nodeValue.indexOf('MyStorefront ') !== -1) hits.push(node);
+      }
+      for (var i = 0; i < hits.length; i++) {
+        var el = hits[i].parentElement;
+        if (!el || (el.closest && el.closest('script,style,noscript,textarea'))) continue;
+        var target = null;
+        var cur = el;
+        for (var d = 0; d < 6 && cur && cur !== document.body; d++) {
+          if (onlyOurText(cur)) { target = cur; cur = cur.parentElement; } else break;
+        }
+        if (target) target.style.display = 'none';
+      }
+    } catch (e) {}
+  }
+
+  function startHider() {
+    hideOurLines(document.body);
+    if (typeof MutationObserver === 'undefined' || !document.body) return;
+    var pending = false;
+    new MutationObserver(function () {
+      if (pending) return;
+      pending = true;
+      setTimeout(function () { pending = false; hideOurLines(document.body); }, 50);
+    }).observe(document.body, { childList: true, subtree: true });
+  }
+
   // ── Main flow ────────────────────────────────────────────────────────────
 
   function run() {
@@ -391,8 +435,10 @@ function getStoredClickId() {
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', run);
+    document.addEventListener('DOMContentLoaded', startHider);
   } else {
     run();
+    startHider();
   }
 
   // Re-run if the shopper grants consent after the initial load.
