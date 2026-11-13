@@ -4,6 +4,7 @@ import { getSettings, saveSettings } from "../db.js";
 import { buildTestPayload, sendPayload } from "../postback-sender.js";
 import { getValidAccessToken } from "../shopify-auth.js";
 import { ensureWebPixel } from "../web-pixel-activation.js";
+import { connectToMystorefront } from "../mystorefront-connect.js";
 
 /**
  * Constant-time string comparison to prevent timing attacks.
@@ -14,6 +15,11 @@ function safeCompare(a, b) {
   } catch {
     return false;
   }
+}
+
+function logConnect(shop, result) {
+  if (!result) return;
+  console.log(`[MS CONNECT] ${shop}: ${result.status}`, result.error || "");
 }
 
 export default function settingsRouter(shopify) {
@@ -50,6 +56,13 @@ export default function settingsRouter(shopify) {
         .then((token) => ensureWebPixel({ shop, token }))
         .then((result) => console.log(`[MS PIXEL] Activation for ${shop}: ${result.status}`, result.errors || ""))
         .catch((err) => console.warn(`[MS PIXEL] Activation for ${shop} failed:`, err?.message || err));
+
+      // Link this shop to its MyStorefront brand in the background (at most
+      // once an hour while it is linked). Never blocks the settings load.
+      connectToMystorefront(shop, { onlyIfStale: true })
+        .then((result) => logConnect(shop, result))
+        .catch((err) => console.warn(`[MS CONNECT] ${shop} failed:`, err?.message || err));
+
       const s = await getSettings(shop);
 
       if (!s) {
@@ -66,6 +79,8 @@ export default function settingsRouter(shopify) {
           mystorefront_api_key: "",
           // Admin token is set automatically via OAuth — never exposed to frontend
           has_shopify_admin_token: false,
+          mystorefront_linked_at: null,
+          mystorefront_link_error: "",
         });
       }
 
@@ -82,6 +97,8 @@ export default function settingsRouter(shopify) {
         mystorefront_api_key: s.mystorefront_api_key || "",
         // Admin token is set automatically via OAuth — never exposed to frontend
         has_shopify_admin_token: Boolean(s.shopify_admin_token),
+        mystorefront_linked_at: s.mystorefront_linked_at || null,
+        mystorefront_link_error: s.mystorefront_link_error || "",
       });
     } catch (err) {
       console.error("GET /api/settings error:", err);
@@ -105,6 +122,15 @@ export default function settingsRouter(shopify) {
       }
 
       await saveSettings(shop, body);
+
+      // Link this shop to its MyStorefront brand now that the secret is saved.
+      // A failed link never fails the save; the status is returned instead.
+      try {
+        logConnect(shop, await connectToMystorefront(shop));
+      } catch (err) {
+        console.warn(`[MS CONNECT] ${shop} failed:`, err?.message || err);
+      }
+
       const saved = await getSettings(shop);
 
       // Webhooks are registered declaratively via the app config (see
@@ -124,6 +150,8 @@ export default function settingsRouter(shopify) {
           has_mystorefront_api_key: Boolean(saved.mystorefront_api_key),
           mystorefront_api_key: saved.mystorefront_api_key || "",
           has_shopify_admin_token: Boolean(saved.shopify_admin_token),
+          mystorefront_linked_at: saved.mystorefront_linked_at || null,
+          mystorefront_link_error: saved.mystorefront_link_error || "",
         },
       });
     } catch (err) {
@@ -138,6 +166,14 @@ export default function settingsRouter(shopify) {
       const shop = res.locals.shopify.session.shop;
       const newKey = randomBytes(16).toString("hex");
       await saveSettings(shop, { mystorefront_api_key: newKey });
+
+      // Push the new key to MyStorefront so discount sync keeps working.
+      try {
+        logConnect(shop, await connectToMystorefront(shop));
+      } catch (err) {
+        console.warn(`[MS CONNECT] ${shop} failed:`, err?.message || err);
+      }
+
       return res.json({ success: true, key: newKey });
     } catch (err) {
       console.error("POST /api/settings/generate-api-key error:", err);
