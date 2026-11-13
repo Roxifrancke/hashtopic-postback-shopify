@@ -94,11 +94,11 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
   // Cart attribute → order note_attribute. No underscore needed: cart attrs
   // are not rendered in cart/checkout by default. Admin shows it under
   // "Additional details".
-  var CART_ATTR_NAME = 'MyStorefront click_id';
+  var CART_ATTR_NAME = '__MyStorefront click_id';
   // sessionStorage flag so the cart attribute is written at most once per
   // session instead of on every page load (repeated /cart/update.js writes
   // make some themes re-render or flash the cart drawer as the shopper browses).
-  var CART_WRITE_FLAG = 'mystorefront_cart_written';
+  var CART_WRITE_FLAG = 'mystorefront_cart_written_private_v2';
 
   // Creator ref. Only read from a URL that also carries a click_id, so an
   // unrelated ref param from another site can never tag a cart.
@@ -106,7 +106,7 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
   var CREATOR_STORAGE_KEY = 'mystorefront_creator_ref';
   var CREATOR_LINE_PROP = '_MyStorefront creator';
   var CREATOR_FORM_INPUT = 'properties[' + CREATOR_LINE_PROP + ']';
-  var CREATOR_ATTR_NAME = 'MyStorefront creator';
+  var CREATOR_ATTR_NAME = '__MyStorefront Creator Referral';
   var CREATOR_REF_RE = /^[A-Za-z0-9._-]{1,64}$/;
 
   function getCreatorFromUrl() {
@@ -243,6 +243,9 @@ function getStoredClickId() {
       attrs[CART_ATTR_NAME] = clickId;
       // An empty value removes a creator ref left over from an earlier click.
       attrs[CREATOR_ATTR_NAME] = creatorRef || '';
+      // Clear attributes written by older versions so they stop showing on /cart.
+      attrs['MyStorefront click_id'] = '';
+      attrs['MyStorefront creator'] = '';
       fetch('/cart/update.js', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

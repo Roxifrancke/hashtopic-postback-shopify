@@ -1,6 +1,6 @@
 query CartLinesDiscountsGenerateRunInput {
   cart {
-    attribute(key: "MyStorefront creator") {
+    attribute(key: "__MyStorefront Creator Referral") {
       value
     }
     lines {

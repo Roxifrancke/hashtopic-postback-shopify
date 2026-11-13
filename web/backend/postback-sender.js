@@ -19,7 +19,8 @@ const LINE_ITEM_PROP_NAMES = [
   "_click_id",               // legacy v1.3 fallback
 ];
 const NOTE_ATTR_NAMES = [
-  "MyStorefront click_id", // current
+  "__MyStorefront click_id", // private cart attribute
+  "MyStorefront click_id", // legacy visible cart attribute
   "click_id",              // legacy
 ];
 

@@ -6,7 +6,7 @@
 // "Don't allow any codes" is sent as block: true with no codes, so every
 // entered code is removed. Automatic discounts are never touched.
 
-const MESSAGE = "This discount code can't be used with a creator link, so it's been removed.";
+const MESSAGE = "Discount codes cannot be combined with creator referral links.";
 const NONE = { operations: [] };
 
 function parse(value) {

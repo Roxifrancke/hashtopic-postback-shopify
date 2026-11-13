@@ -41,8 +41,8 @@
       // each line item. Must match the value used in pixel-script.js so the
       // backend extractor finds it.
       var LINE_ITEM_PROP = '_MyStorefront click_id';
-      var CART_ATTR_NAME = 'MyStorefront click_id';
-      var CART_WRITE_FLAG = 'mystorefront_cart_written';
+      var CART_ATTR_NAME = '__MyStorefront click_id';
+      var CART_WRITE_FLAG = 'mystorefront_cart_written_private_v2';
 
       function getUrlParam() {
         try {
@@ -125,6 +125,8 @@
           }
           var attrs = {};
           attrs[CART_ATTR_NAME] = clickId;
+          attrs['MyStorefront click_id'] = '';
+          attrs['MyStorefront creator'] = '';
           fetch('/cart/update.js', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

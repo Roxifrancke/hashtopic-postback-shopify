@@ -83,14 +83,14 @@ export function appProxyRouter() {
     var exp = new Date(Date.now() + DAYS * 864e5).toUTCString();
     document.cookie = CN + '=' + encodeURIComponent(C) + '; expires=' + exp + '; path=/; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : '');
   } catch (e) {}
-  try { sessionStorage.setItem('mystorefront_cart_written', C + '|' + (R || '')); } catch (e) {}
+  try { sessionStorage.setItem('mystorefront_cart_written_private_v2', C + '|' + (R || '')); } catch (e) {}
   var done = false;
   function go(){ if (done) return; done = true; location.replace(D); }
   try {
     fetch('/cart/update.js', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ attributes: { 'MyStorefront click_id': C, 'MyStorefront creator': R || '' } })
+      body: JSON.stringify({ attributes: { '__MyStorefront click_id': C, '__MyStorefront Creator Referral': R || '', 'MyStorefront click_id': '', 'MyStorefront creator': '' } })
     }).then(go, go);
   } catch (e) { go(); }
   setTimeout(go, 1500);
