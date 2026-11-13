@@ -73,6 +73,26 @@ export function extractClickId(order) {
 }
 
 /**
+ * Everything taken off a line, including its share of order-level codes.
+ * Shopify spreads an "amount off order" code across lines in
+ * discount_allocations. total_discount only covers line-level discounts, so
+ * on its own it undercounts and the eligible subtotal comes out higher than
+ * the order total (MyStorefront then rejects the postback with 422).
+ */
+function lineDiscount(item) {
+  const lineGross = parseFloat(item?.price || 0) * (item?.quantity || 0);
+  const allocations = Array.isArray(item?.discount_allocations) ? item.discount_allocations : [];
+  if (allocations.length > 0) {
+    const sum = allocations.reduce(
+      (total, a) => total + parseFloat(a?.amount ?? a?.amount_set?.shop_money?.amount ?? 0),
+      0,
+    );
+    return Math.min(Math.round(sum * 100) / 100, Math.round(lineGross * 100) / 100);
+  }
+  return parseFloat(item?.total_discount || 0);
+}
+
+/**
  * Build postback payload from a Shopify order object
  */
 export function buildPayload(shop, order, settings) {
@@ -85,7 +105,7 @@ export function buildPayload(shop, order, settings) {
     title: item.title || null,
     quantity: item.quantity || 0,
     price: parseFloat(item.price || 0),
-    total_discount: parseFloat(item.total_discount || 0),
+    total_discount: lineDiscount(item),
   }));
 
   const itemsCount = lineItems.reduce(
