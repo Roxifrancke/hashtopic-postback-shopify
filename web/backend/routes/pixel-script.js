@@ -89,7 +89,7 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
   var EXPIRY_DAYS = COOKIE_DAYS; // attribution window follows merchant config
   // Line item property: leading underscore hides from cart/checkout/customer
   // emails (Shopify convention). Admin still shows it under each line item.
-  var LINE_ITEM_PROP_NAME = '_MyStorefront click_id';
+  var LINE_ITEM_PROP_NAME = '__MyStorefront click_id';
   var FORM_INPUT_NAME = 'properties[' + LINE_ITEM_PROP_NAME + ']';
   // Cart attribute → order note_attribute. No underscore needed: cart attrs
   // are not rendered in cart/checkout by default. Admin shows it under
@@ -104,7 +104,7 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
   // unrelated ref param from another site can never tag a cart.
   var CREATOR_PARAM = 'ref';
   var CREATOR_STORAGE_KEY = 'mystorefront_creator_ref';
-  var CREATOR_LINE_PROP = '_MyStorefront creator';
+  var CREATOR_LINE_PROP = '__MyStorefront Creator Referral';
   var CREATOR_FORM_INPUT = 'properties[' + CREATOR_LINE_PROP + ']';
   var CREATOR_ATTR_NAME = '__MyStorefront Creator Referral';
   var CREATOR_REF_RE = /^[A-Za-z0-9._-]{1,64}$/;

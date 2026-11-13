@@ -28,10 +28,10 @@ export function cartValidationsGenerateRun(input) {
 
   // The cart attribute is the source of truth. Line items are only used when
   // it's missing (Buy It Now skips the cart).
-  let ref = clean(cart.attribute?.value);
+  let ref = clean(cart.attribute?.value) || clean(cart.legacyAttribute?.value);
   if (!ref) {
     for (const line of cart.lines || []) {
-      const v = clean(line?.attribute?.value);
+      const v = clean(line?.attribute?.value) || clean(line?.legacyAttribute?.value);
       if (v) {
         ref = v;
         break;

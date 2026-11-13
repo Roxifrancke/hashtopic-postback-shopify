@@ -14,7 +14,8 @@ const RETRY_DELAYS = [0, 300, 1800, 7200, 86400];
 // no v1.3-or-earlier carts are in flight (~30 days post-deploy, matching
 // cookie TTL).
 const LINE_ITEM_PROP_NAMES = [
-  "_MyStorefront click_id", // current
+  "__MyStorefront click_id", // private (hidden on /cart)
+  "_MyStorefront click_id", // previous
   "click_id",                // legacy v1.2/v1.3 main script
   "_click_id",               // legacy v1.3 fallback
 ];

@@ -29,10 +29,10 @@ export function cartLinesDiscountsGenerateRun(input) {
   const cart = input?.cart || {};
 
   // Cart attribute first. Line items cover Buy It Now, which skips the cart.
-  let ref = clean(cart.attribute?.value);
+  let ref = clean(cart.attribute?.value) || clean(cart.legacyAttribute?.value);
   if (!ref) {
     for (const line of cart.lines || []) {
-      const v = clean(line?.attribute?.value);
+      const v = clean(line?.attribute?.value) || clean(line?.legacyAttribute?.value);
       if (v) {
         ref = v;
         break;

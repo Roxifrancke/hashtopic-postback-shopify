@@ -3,8 +3,14 @@ query CartLinesDiscountsGenerateRunInput {
     attribute(key: "__MyStorefront Creator Referral") {
       value
     }
+    legacyAttribute: attribute(key: "MyStorefront creator") {
+      value
+    }
     lines {
-      attribute(key: "_MyStorefront creator") {
+      attribute(key: "__MyStorefront Creator Referral") {
+        value
+      }
+      legacyAttribute: attribute(key: "_MyStorefront creator") {
         value
       }
     }
