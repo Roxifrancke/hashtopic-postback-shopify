@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { randomBytes, timingSafeEqual } from "crypto";
-import { getSettings, saveSettings } from "../db.js";
+import { getSettings, saveSettings, getLastPostbackAt } from "../db.js";
 import { buildTestPayload, sendPayload } from "../postback-sender.js";
 import { getValidAccessToken } from "../shopify-auth.js";
 import { ensureWebPixel } from "../web-pixel-activation.js";
@@ -64,6 +64,7 @@ export default function settingsRouter(shopify) {
         .catch((err) => console.warn(`[MS CONNECT] ${shop} failed:`, err?.message || err));
 
       const s = await getSettings(shop);
+      const lastPostbackAt = await getLastPostbackAt(shop);
 
       if (!s) {
         return res.json({
@@ -81,6 +82,7 @@ export default function settingsRouter(shopify) {
           has_shopify_admin_token: false,
           mystorefront_linked_at: null,
           mystorefront_link_error: "",
+          last_postback_at: lastPostbackAt,
         });
       }
 
@@ -99,6 +101,7 @@ export default function settingsRouter(shopify) {
         has_shopify_admin_token: Boolean(s.shopify_admin_token),
         mystorefront_linked_at: s.mystorefront_linked_at || null,
         mystorefront_link_error: s.mystorefront_link_error || "",
+        last_postback_at: lastPostbackAt,
       });
     } catch (err) {
       console.error("GET /api/settings error:", err);

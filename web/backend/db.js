@@ -293,6 +293,16 @@ export async function getDeliveriesForShop(shop, limit = 50) {
   return rows;
 }
 
+// Time of the last postback MyStorefront accepted for this shop.
+export async function getLastPostbackAt(shop) {
+  await ensureReady();
+  const { rows } = await pool.query(
+    "SELECT MAX(sent_at) AS last_sent FROM deliveries WHERE shop = $1 AND status = 'sent'",
+    [shop]
+  );
+  return rows[0]?.last_sent || null;
+}
+
 export async function getDeliveryById(id) {
   await ensureReady();
   const { rows } = await pool.query("SELECT * FROM deliveries WHERE id = $1", [id]);
