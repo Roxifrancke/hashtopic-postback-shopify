@@ -27,7 +27,49 @@ const DEFAULT_SETTINGS = {
   has_mystorefront_api_key: false,
   mystorefront_api_key: "",
   has_shopify_admin_token: false,
+  mystorefront_linked_at: null,
+  mystorefront_link_error: "",
 };
+
+const LINK_ERRORS = {
+  unknown_secret:
+    "MyStorefront couldn't find your brand. Check this webhook secret matches the one in your MyStorefront Brand Settings, then click Save.",
+  brand_connected_to_other_shop:
+    "Your MyStorefront brand is already linked to a different Shopify store. Contact MyStorefront support to move it.",
+  shop_connected_to_other_brand:
+    "This store is already linked to a different MyStorefront brand. Contact MyStorefront support.",
+};
+
+function getLinkStatus(s) {
+  if (s.mystorefront_link_error) {
+    return {
+      badge: "critical",
+      label: "Not linked",
+      message:
+        LINK_ERRORS[s.mystorefront_link_error] ||
+        "We couldn't link to MyStorefront just now. Click Save to try again.",
+    };
+  }
+  if (s.mystorefront_linked_at) {
+    return {
+      badge: "success",
+      label: "Linked",
+      message: "Your store is linked to MyStorefront. Discount codes sync automatically.",
+    };
+  }
+  if (!s.has_secret) {
+    return {
+      badge: "warning",
+      label: "Not linked",
+      message: "Save your webhook secret above and your store will link to MyStorefront automatically.",
+    };
+  }
+  return {
+    badge: "info",
+    label: "Linking",
+    message: "Linking to MyStorefront. Reopen this page in a moment.",
+  };
+}
 
 export default function SettingsPage() {
   const fetch = useAuthenticatedFetch();
@@ -153,6 +195,7 @@ export default function SettingsPage() {
 
   const appBaseUrl = window.location.origin;
   const incomingWebhookUrl = `${appBaseUrl}/api/discount-codes`;
+  const link = getLinkStatus(settings);
 
   if (loading) {
     return (
@@ -223,13 +266,23 @@ export default function SettingsPage() {
           </Card>
         </Layout.AnnotatedSection>
 
-        {/* MyStorefront Discount Code Sync */}
+        {/* MyStorefront Connection */}
         <Layout.AnnotatedSection
-          title="MyStorefront Discount Code Sync"
-          description="Allow MyStorefront to automatically create discount codes on this store. Copy both values into your MyStorefront Brand Settings."
+          title="MyStorefront Connection"
+          description="Your store links to MyStorefront automatically when you save your webhook secret. Discount codes then sync on their own."
         >
           <Card>
             <BlockStack gap="500">
+
+              <BlockStack gap="200">
+                <Text variant="bodyMd" fontWeight="semibold">MyStorefront</Text>
+                <InlineStack gap="200" blockAlign="center">
+                  <Badge status={link.badge}>{link.label}</Badge>
+                  <Text variant="bodySm" color="subdued">{link.message}</Text>
+                </InlineStack>
+              </BlockStack>
+
+              <Divider />
 
               {/* Shopify Admin API Token — set automatically via OAuth, no manual input needed */}
               <BlockStack gap="200">
@@ -249,58 +302,6 @@ export default function SettingsPage() {
                     </Text>
                   </InlineStack>
                 )}
-              </BlockStack>
-
-              <Divider />
-
-              {/* MyStorefront API Key */}
-              <BlockStack gap="200">
-                <Text variant="bodyMd" fontWeight="semibold">MyStorefront API Key</Text>
-                <InlineStack gap="300" blockAlign="center" wrap>
-                  <div style={{ flex: 1, minWidth: 280 }}>
-                    <TextField
-                      label="API Key"
-                      labelHidden
-                      value={settings.mystorefront_api_key}
-                      readOnly
-                      placeholder={settings.has_mystorefront_api_key ? "Key saved" : "Click Generate to create a key"}
-                      autoComplete="off"
-                      monospaced
-                    />
-                  </div>
-                  <Button onClick={handleGenerateApiKey} loading={generatingKey}>
-                    Generate New Key
-                  </Button>
-                </InlineStack>
-                {generateResult && (
-                  <Banner
-                    status={generateResult.type === "success" ? "success" : "critical"}
-                    onDismiss={() => setGenerateResult(null)}
-                  >
-                    {generateResult.message}
-                  </Banner>
-                )}
-                <Text variant="bodySm" color="subdued">
-                  Paste this key into MyStorefront Brand Settings → Discount Code Sync → API Key.
-                </Text>
-              </BlockStack>
-
-              <Divider />
-
-              {/* Incoming Webhook URL */}
-              <BlockStack gap="200">
-                <Text variant="bodyMd" fontWeight="semibold">Incoming Webhook URL</Text>
-                <TextField
-                  label="Incoming Webhook URL"
-                  labelHidden
-                  value={incomingWebhookUrl}
-                  readOnly
-                  autoComplete="off"
-                  monospaced
-                />
-                <Text variant="bodySm" color="subdued">
-                  Paste this URL into MyStorefront Brand Settings → Discount Code Sync → Incoming Webhook URL.
-                </Text>
               </BlockStack>
 
             </BlockStack>
