@@ -50,6 +50,7 @@ import { startRetryWorker } from "./retry-worker.js";
 import { pixelScriptRouter } from "./routes/pixel-script.js";
 import discountCodesRouter from "./routes/discount-codes.js";
 import referralRulesRouter from "./routes/referral-rules.js";
+import productsRouter from "./routes/products.js";
 import { appProxyRouter } from "./routes/app-proxy.js";
 import { shopifyHealthRouter } from "./routes/shopify-health.js";
 import cors from "cors";
@@ -335,6 +336,9 @@ app.use("/api/discount-codes", discountCodesRouter(shopify));
 
 // ── MyStorefront-facing creator code rules — key-authed, BEFORE session middleware
 app.use("/api/referral-rules", referralRulesRouter(shopify));
+
+// ── MyStorefront-facing product catalogue (read-only) — key-authed, BEFORE session middleware
+app.use("/api/products", productsRouter(shopify));
 
 // ── Shopify app proxy (store.com/apps/mystorefront/*). Signed by Shopify.
 app.use("/proxy", appProxyRouter());
