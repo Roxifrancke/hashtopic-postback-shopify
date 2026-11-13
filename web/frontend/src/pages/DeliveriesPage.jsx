@@ -115,7 +115,7 @@ export default function DeliveriesPage() {
 
   return (
     <Page
-      title="Orders recorded"
+      title="Orders Recorded"
       subtitle="The last 50 orders and refunds sent to MyStorefront"
       primaryAction={{
         content: "Refresh",
