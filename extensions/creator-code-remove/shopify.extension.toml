@@ -1,0 +1,18 @@
+api_version = "2026-10"
+
+[[extensions]]
+name = "MyStorefront Creator Referral"
+handle = "creator-code-remove"
+
+uid = "b8c8d0e6-ed36-91be-2299-a16967b1c470cd6b72d3"
+type = "function"
+description = "Removes discount codes that aren't allowed on creator-referred carts."
+
+  [[extensions.targeting]]
+  target = "cart.lines.discounts.generate.run"
+  input_query = "src/cart_lines_discounts_generate_run.graphql"
+  export = "cart-lines-discounts-generate-run"
+
+  [extensions.build]
+  command = ""
+  path = "dist/function.wasm"

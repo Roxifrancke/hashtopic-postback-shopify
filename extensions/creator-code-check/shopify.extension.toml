@@ -1,0 +1,18 @@
+api_version = "2026-10"
+
+[[extensions]]
+name = "Creator code check"
+handle = "creator-code-check"
+
+uid = "4aa1a6ae-c398-d9e2-0f8c-9a2301796dc388e9ac48"
+type = "function"
+description = "Blocks discount codes on creator-referred carts when the brand chooses Block."
+
+  [[extensions.targeting]]
+  target = "cart.validations.generate.run"
+  input_query = "src/cart_validations_generate_run.graphql"
+  export = "cart-validations-generate-run"
+
+  [extensions.build]
+  command = ""
+  path = "dist/function.wasm"

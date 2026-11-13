@@ -20,7 +20,7 @@ export default function App() {
             selected: location.pathname === "/",
           },
           {
-            label: "Deliveries",
+            label: "Orders Recorded",
             icon: OrderIcon,
             onClick: () => navigate("/deliveries"),
             selected: location.pathname === "/deliveries",

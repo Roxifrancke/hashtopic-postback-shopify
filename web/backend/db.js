@@ -35,6 +35,10 @@ async function initDb() {
     ALTER TABLE settings ADD COLUMN IF NOT EXISTS shopify_access_token_expires_at  TIMESTAMPTZ;
     ALTER TABLE settings ADD COLUMN IF NOT EXISTS shopify_refresh_token_expires_at TIMESTAMPTZ;
 
+    -- MyStorefront auto connect status.
+    ALTER TABLE settings ADD COLUMN IF NOT EXISTS mystorefront_linked_at TIMESTAMPTZ;
+    ALTER TABLE settings ADD COLUMN IF NOT EXISTS mystorefront_link_error TEXT NOT NULL DEFAULT '';
+
     CREATE TABLE IF NOT EXISTS deliveries (
       id               SERIAL PRIMARY KEY,
       shop             TEXT NOT NULL,
@@ -173,6 +177,18 @@ export async function saveSettings(shop, data) {
 
 // ── Deliveries helpers ───────────────────────────────────────────────────────
 
+export async function saveMystorefrontLinkStatus(shop, { linked, error }) {
+  await ensureReady();
+  await pool.query(
+    `UPDATE settings
+     SET mystorefront_linked_at  = CASE WHEN $1::boolean THEN NOW() ELSE mystorefront_linked_at END,
+         mystorefront_link_error = $2,
+         updated_at              = NOW()
+     WHERE shop = $3`,
+    [Boolean(linked), error || "", shop],
+  );
+}
+
 export async function upsertDelivery(shop, orderId, orderName) {
   await ensureReady();
   const client = await pool.connect();
@@ -275,6 +291,16 @@ export async function getDeliveriesForShop(shop, limit = 50) {
     [shop, limit]
   );
   return rows;
+}
+
+// Time of the last postback MyStorefront accepted for this shop.
+export async function getLastPostbackAt(shop) {
+  await ensureReady();
+  const { rows } = await pool.query(
+    "SELECT MAX(sent_at) AS last_sent FROM deliveries WHERE shop = $1 AND status = 'sent'",
+    [shop]
+  );
+  return rows[0]?.last_sent || null;
 }
 
 export async function getDeliveryById(id) {

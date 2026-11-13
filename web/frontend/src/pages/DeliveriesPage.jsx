@@ -115,8 +115,8 @@ export default function DeliveriesPage() {
 
   return (
     <Page
-      title="Deliveries"
-      subtitle="Last 50 postback delivery attempts"
+      title="Orders Recorded"
+      subtitle="The last 50 orders and refunds sent to MyStorefront"
       primaryAction={{
         content: "Refresh",
         onAction: loadDeliveries,
@@ -143,17 +143,16 @@ export default function DeliveriesPage() {
               <Box padding="800">
                 <BlockStack inlineAlign="center" gap="400">
                   <Spinner />
-                  <Text>Loading deliveries...</Text>
+                  <Text>Loading orders...</Text>
                 </BlockStack>
               </Box>
             ) : deliveries.length === 0 ? (
               <EmptyState
-                heading="No deliveries yet"
+                heading="No orders recorded yet"
                 image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
               >
                 <Text>
-                  Postback deliveries will appear here once orders are placed
-                  and the postback is attempted.
+                  Orders from creator links will show here once they're sent to MyStorefront.
                 </Text>
               </EmptyState>
             ) : (

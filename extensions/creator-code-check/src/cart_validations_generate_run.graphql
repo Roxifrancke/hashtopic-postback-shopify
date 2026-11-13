@@ -1,0 +1,28 @@
+query CartValidationsGenerateRunInput {
+  cart {
+    attribute(key: "__MyStorefront Creator Referral") {
+      value
+    }
+    legacyAttribute: attribute(key: "MyStorefront creator") {
+      value
+    }
+    lines {
+      attribute(key: "__MyStorefront Creator Referral") {
+        value
+      }
+      legacyAttribute: attribute(key: "_MyStorefront creator") {
+        value
+      }
+    }
+    discountApplications {
+      metafield(namespace: "$app:mystorefront", key: "code_rule") {
+        value
+      }
+    }
+  }
+  shop {
+    metafield(namespace: "$app:mystorefront", key: "referral_rules") {
+      value
+    }
+  }
+}

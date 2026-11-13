@@ -40,13 +40,18 @@ import {
   persistShopifyTokens,
   needsOfflineProvision,
   provisionOfflineTokenFromSession,
+  getValidAccessToken,
 } from "./shopify-auth.js";
+import { tagOneDiscount, readRules, ensureRejectDiscount } from "./referral-tagging.js";
 import settingsRouter from "./routes/settings.js";
 import deliveriesRouter from "./routes/deliveries.js";
 import webhookHandlers from "./webhooks/index.js";
 import { startRetryWorker } from "./retry-worker.js";
 import { pixelScriptRouter } from "./routes/pixel-script.js";
 import discountCodesRouter from "./routes/discount-codes.js";
+import referralRulesRouter from "./routes/referral-rules.js";
+import productsRouter from "./routes/products.js";
+import { appProxyRouter } from "./routes/app-proxy.js";
 import { shopifyHealthRouter } from "./routes/shopify-health.js";
 import cors from "cors";
 import gdprRouter from "./routes/gdpr.js";
@@ -265,6 +270,25 @@ app.post("/api/webhooks", express.text({ type: "*/*" }), async (req, res) => {
       await webhookHandlers.ordersUpdated(topic, shop, req.body);
     } else if (topic === "refunds/create") {
       await webhookHandlers.refundsCreate(topic, shop, req.body, undefined, shopify);
+    } else if (topic === "discounts/create" || topic === "discounts/update" || topic === "discounts/delete") {
+      // Code discounts: tag them for the creator code check.
+      // Automatic discounts: if the brand deleted, paused or renamed our creator
+      // link rule while blocking codes, put it straight back. Never blocks the ack.
+      let gid = null;
+      try { gid = JSON.parse(req.body)?.admin_graphql_api_id || null; } catch {}
+      getValidAccessToken(shopify, shop)
+        .then(async (token) => {
+          if (!token || !gid) return null;
+          if (String(gid).includes("DiscountAutomaticNode")) {
+            const rules = await readRules(shop, token);
+            if (!rules?.block) return { status: "rules_not_blocking" };
+            return ensureRejectDiscount(shop, token, true);
+          }
+          if (topic === "discounts/delete") return null;
+          return tagOneDiscount(shop, token, gid);
+        })
+        .then((r) => r && console.log(`[MS RULES] ${topic} ${gid} for ${shop}: ${r.status}`))
+        .catch((err) => console.warn(`[MS RULES] ${topic} failed for ${shop}:`, err?.message || err));
     }
     res.status(200).send("OK");
   } catch (err) {
@@ -309,6 +333,15 @@ app.use("/api/shopify-health", shopifyHealthRouter());
 // ── MyStorefront-facing discount codes — also BEFORE session middleware ─────
 // Called by MyStorefront's servers using X-Mystorefront-Key auth (handled inside router).
 app.use("/api/discount-codes", discountCodesRouter(shopify));
+
+// ── MyStorefront-facing creator code rules — key-authed, BEFORE session middleware
+app.use("/api/referral-rules", referralRulesRouter(shopify));
+
+// ── MyStorefront-facing product catalogue (read-only) — key-authed, BEFORE session middleware
+app.use("/api/products", productsRouter(shopify));
+
+// ── Shopify app proxy (store.com/apps/mystorefront/*). Signed by Shopify.
+app.use("/proxy", appProxyRouter());
 
 // SECURITY: Session middleware for merchant-facing routes. Every /api call
 // below this point must carry a valid Shopify session-token JWT (the App Bridge
