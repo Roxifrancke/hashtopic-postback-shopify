@@ -90,7 +90,7 @@ export function appProxyRouter() {
     fetch('/cart/update.js', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ attributes: { '__MyStorefront click_id': C, '__MyStorefront Creator Referral': R || '', 'MyStorefront click_id': '', 'MyStorefront creator': '' } })
+      body: JSON.stringify({ attributes: { 'MyStorefront click_id': C, 'MyStorefront creator': R || '', '__MyStorefront click_id': '', '__MyStorefront Creator Referral': '' } })
     }).then(go, go);
   } catch (e) { go(); }
   setTimeout(go, 1500);

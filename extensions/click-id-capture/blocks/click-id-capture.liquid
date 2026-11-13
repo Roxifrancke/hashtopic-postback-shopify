@@ -40,8 +40,8 @@
       // customer emails. Admin still shows "_MyStorefront click_id" against
       // each line item. Must match the value used in pixel-script.js so the
       // backend extractor finds it.
-      var LINE_ITEM_PROP = '__MyStorefront click_id';
-      var CART_ATTR_NAME = '__MyStorefront click_id';
+      var LINE_ITEM_PROP = '_MyStorefront click_id';
+      var CART_ATTR_NAME = 'MyStorefront click_id';
       var CART_WRITE_FLAG = 'mystorefront_cart_written_private_v2';
 
       function getUrlParam() {
@@ -125,8 +125,8 @@
           }
           var attrs = {};
           attrs[CART_ATTR_NAME] = clickId;
-          attrs['MyStorefront click_id'] = '';
-          attrs['MyStorefront creator'] = '';
+          attrs['__MyStorefront click_id'] = '';
+          attrs['__MyStorefront Creator Referral'] = '';
           fetch('/cart/update.js', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

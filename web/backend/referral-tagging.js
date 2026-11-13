@@ -148,8 +148,8 @@ export async function ensureValidation(shop, token) {
 // so this gives the function a place to run. It never discounts anything.
 // It only exists while the brand has a blocking option on, and is deleted
 // when they switch back to allowing codes.
-const REMOVE_FUNCTION_TITLE = "MyStorefront creator link rules";
-const REMOVE_DISCOUNT_TITLE = "MyStorefront creator links (gives no discount, don't delete)";
+const REMOVE_FUNCTION_TITLE = "MyStorefront Creator Referral";
+const REMOVE_DISCOUNT_TITLE = "MyStorefront Creator Referral";
 const DISCOUNT_API_VERSION = "2026-01";
 
 // Custom apps can only run functions on Shopify Plus stores. Report that
@@ -165,7 +165,12 @@ function failure(res, ue, fallback) {
 }
 
 // Titles this rule has had, so older copies are still recognised.
-const OLD_DISCOUNT_TITLES = ["MyStorefront creator code check (do not delete)"];
+const OLD_DISCOUNT_TITLES = [
+  "MyStorefront creator code check (do not delete)",
+  "MyStorefront creator links (gives no discount, don't delete)",
+];
+// The function's earlier name, so it is still found while a rename deploys.
+const FUNCTION_TITLES = [REMOVE_FUNCTION_TITLE, "MyStorefront creator link rules"];
 
 // The function id format can differ between APIs, so also match by the
 // function's name and by our own titles.
@@ -176,7 +181,7 @@ function isOurs(node, fnId) {
   const idMatch = Boolean(fnId && fid && (fid === fnId || fid.endsWith(`/${fnId}`) || fnId.endsWith(`/${fid}`)));
   return (
     idMatch ||
-    d.appDiscountType?.title === REMOVE_FUNCTION_TITLE ||
+    FUNCTION_TITLES.includes(d.appDiscountType?.title) ||
     d.title === REMOVE_DISCOUNT_TITLE ||
     OLD_DISCOUNT_TITLES.includes(d.title)
   );
@@ -211,7 +216,7 @@ async function findRemoveDiscounts(shop, token) {
   );
   if (!out.ok || out.json?.errors) return { error: { status: "query_failed", errors: out.json?.errors || null } };
 
-  const fn = (out.json?.data?.shopifyFunctions?.nodes || []).find((f) => f.title === REMOVE_FUNCTION_TITLE);
+  const fn = (out.json?.data?.shopifyFunctions?.nodes || []).find((f) => FUNCTION_TITLES.includes(f.title));
   if (!fn) return { error: { status: "function_not_deployed" } };
 
   const nodes = (out.json?.data?.discountNodes?.nodes || []).map((n) => ({
