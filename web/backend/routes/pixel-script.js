@@ -388,12 +388,22 @@ function getStoredClickId() {
   function startHider() {
     hideOurLines(document.body);
     if (typeof MutationObserver === 'undefined' || !document.body) return;
-    var pending = false;
-    new MutationObserver(function () {
-      if (pending) return;
-      pending = true;
-      setTimeout(function () { pending = false; hideOurLines(document.body); }, 50);
-    }).observe(document.body, { childList: true, subtree: true });
+    // Runs before the browser paints, so new cart rows are hidden before they show.
+    new MutationObserver(function (mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        var m = mutations[i];
+        if (m.type === 'characterData') {
+          if (m.target && m.target.parentElement) hideOurLines(m.target.parentElement);
+          continue;
+        }
+        var added = m.addedNodes;
+        for (var j = 0; j < added.length; j++) {
+          var n = added[j];
+          if (n.nodeType === 1) hideOurLines(n);
+          else if (n.nodeType === 3 && n.parentElement) hideOurLines(n.parentElement);
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true, characterData: true });
   }
 
   // ── Main flow ────────────────────────────────────────────────────────────

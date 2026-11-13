@@ -18,6 +18,55 @@
 {%- endcomment -%}
 
 <script>
+/* Hide MyStorefront item notes on older themes straight away, without
+   waiting for capture.js to load. Display only, tracking is unaffected. */
+(function () {
+  var RE = /_*MyStorefront (?:click_id|Creator Referral|creator)\s*:?\s*[A-Za-z0-9._-]*/g;
+  function onlyOurs(el) {
+    return (el.textContent || '').replace(RE, '').replace(/[\s:]/g, '') === '';
+  }
+  function hide(scope) {
+    try {
+      if (!scope || typeof document.createTreeWalker !== 'function') return;
+      var w = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, null);
+      var hits = [];
+      var n;
+      while ((n = w.nextNode())) {
+        if (n.nodeValue && n.nodeValue.indexOf('MyStorefront ') !== -1) hits.push(n);
+      }
+      for (var i = 0; i < hits.length; i++) {
+        var el = hits[i].parentElement;
+        if (!el || (el.closest && el.closest('script,style,noscript,textarea'))) continue;
+        var target = null;
+        var cur = el;
+        for (var d = 0; d < 6 && cur && cur !== document.body; d++) {
+          if (onlyOurs(cur)) { target = cur; cur = cur.parentElement; } else break;
+        }
+        if (target) target.style.display = 'none';
+      }
+    } catch (e) {}
+  }
+  hide(document.body);
+  if (typeof MutationObserver === 'undefined' || !document.body) return;
+  new MutationObserver(function (mutations) {
+    for (var i = 0; i < mutations.length; i++) {
+      var m = mutations[i];
+      if (m.type === 'characterData') {
+        if (m.target && m.target.parentElement) hide(m.target.parentElement);
+        continue;
+      }
+      var added = m.addedNodes;
+      for (var j = 0; j < added.length; j++) {
+        var node = added[j];
+        if (node.nodeType === 1) hide(node);
+        else if (node.nodeType === 3 && node.parentElement) hide(node.parentElement);
+      }
+    }
+  }).observe(document.body, { childList: true, subtree: true, characterData: true });
+})();
+</script>
+
+<script>
 (function () {
   var APP_URL = {{ block.settings.app_url | default: 'https://mystorefront-postback.onrender.com' | json }};
   var SHOP = {{ shop.permanent_domain | json }};
