@@ -216,7 +216,7 @@ export default function SettingsPage() {
       <Layout>
         {saveResult && (
           <Layout.Section>
-            <Banner status={saveResult.type === "success" ? "success" : "critical"} onDismiss={() => setSaveResult(null)}>
+            <Banner tone={saveResult.type === "success" ? "success" : "critical"} onDismiss={() => setSaveResult(null)}>
               {saveResult.message}
             </Banner>
           </Layout.Section>
@@ -257,7 +257,7 @@ export default function SettingsPage() {
                       Send Test Postback
                     </Button>
                     {testResult && (
-                      <Badge status={testResult.success ? "success" : "critical"}>{testResult.message}</Badge>
+                      <Badge tone={testResult.success ? "success" : "critical"}>{testResult.message}</Badge>
                     )}
                   </InlineStack>
                 </BlockStack>
@@ -277,7 +277,7 @@ export default function SettingsPage() {
               <BlockStack gap="200">
                 <Text variant="bodyMd" fontWeight="semibold">MyStorefront</Text>
                 <InlineStack gap="200" blockAlign="center">
-                  <Badge status={link.badge}>{link.label}</Badge>
+                  <Badge tone={link.badge}>{link.label}</Badge>
                   <Text variant="bodySm" color="subdued">{link.message}</Text>
                 </InlineStack>
               </BlockStack>
@@ -289,14 +289,14 @@ export default function SettingsPage() {
                 <Text variant="bodyMd" fontWeight="semibold">Shopify API Access</Text>
                 {settings.has_shopify_admin_token ? (
                   <InlineStack gap="200" blockAlign="center">
-                    <Badge status="success">Connected</Badge>
+                    <Badge tone="success">Connected</Badge>
                     <Text variant="bodySm" color="subdued">
                       Shopify granted access automatically when you installed the app. Discount code sync is ready.
                     </Text>
                   </InlineStack>
                 ) : (
                   <InlineStack gap="200" blockAlign="center">
-                    <Badge status="warning">Not connected</Badge>
+                    <Badge tone="warning">Not connected</Badge>
                     <Text variant="bodySm" color="subdued">
                       Reinstall the app from the Shopify App Store to grant discount code access automatically.
                     </Text>
