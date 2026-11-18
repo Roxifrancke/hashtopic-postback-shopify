@@ -202,7 +202,7 @@ export default function SettingsPage() {
                 <Text variant="bodyMd" fontWeight="semibold">Setup steps</Text>
                 <List type="number">
                   <List.Item>Log in to MyStorefront and open Settings.</List.Item>
-                  <List.Item>Under Tracking &amp; Integration, choose Shopify.</List.Item>
+                  <List.Item>Under Store integration, choose Shopify.</List.Item>
                   <List.Item>Copy the Webhook URL and paste it below.</List.Item>
                   <List.Item>Copy the Webhook Secret and paste it below.</List.Item>
                   <List.Item>Click Save. Tracking Status changes to Connected.</List.Item>
