@@ -15,34 +15,22 @@ import {
   sendPayload,
   nextRetryAt,
   extractClickId,
+  resolveOrderClick,
   MAX_ATTEMPTS,
 } from "../postback-sender.js";
-import { findClickIdForOrder } from "../pixel-referrals.js";
+import { findEvidenceForOrder } from "../pixel-referrals.js";
 
 const MAX_RETRY = MAX_ATTEMPTS;
 
-// Name the pixel's click_id is attached under. It matches the first name
-// extractClickId() checks, so buildPayload / buildRefundPayload pick it up
-// without any changes.
-const PIXEL_NOTE_ATTR = "MyStorefront click_id";
-
-/**
- * If the order has no click_id from the theme embed, look for one the Web
- * Pixel recorded against this order's checkout_token, and attach it as a
- * note attribute on our in-memory copy of the order. Nothing is written back
- * to Shopify.
- */
-async function attachPixelClickId(shop, order) {
-  if (!order || extractClickId(order)) return order;
-  const clickId = await findClickIdForOrder(shop, order);
-  if (!clickId) return order;
-  return {
-    ...order,
-    note_attributes: [
-      ...(Array.isArray(order.note_attributes) ? order.note_attributes : []),
-      { name: PIXEL_NOTE_ATTR, value: clickId },
-    ],
-  };
+// Work on an in-memory order only. A server-seen Web Pixel history is
+// compared with cart attributes and item properties by capture timestamp.
+// When timestamps are missing, the evidence reports incomplete and the
+// platform holds the order for manual review rather than misclaiming it.
+async function attachPixelClickId(shop,order) {
+  if (!order) return order;
+  const pixel=await findEvidenceForOrder(shop,order);
+  const selected=resolveOrderClick(order,pixel);
+  return { ...order, __mystorefront_attribution:selected };
 }
 
 async function processOrder(shop, incomingOrder) {

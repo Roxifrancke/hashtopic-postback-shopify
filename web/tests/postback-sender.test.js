@@ -610,3 +610,37 @@ test("extractClickId — v1.4: new name beats legacy when both present on the sa
   });
   assert.equal(extractClickId(order), "current");
 });
+
+
+test("Phase 3 — newer line item timestamp beats older cart attribute", () => {
+  const order=makeOrder({
+    note_attributes: [
+      {name:"MyStorefront click_id",value:"creator_older"},
+      {name:"MyStorefront click_at",value:"1763000000000"},
+    ],
+    line_items:[{
+      product_id:12,quantity:1,price:"20",total_discount:"0",
+      properties:[
+        {name:"_MyStorefront click_id",value:"platform_newer"},
+        {name:"_MyStorefront click_at",value:"1763000010000"},
+      ],
+    }],
+  });
+  assert.equal(extractClickId(order),"platform_newer");
+});
+
+test("Phase 3 — Shopify test gateway order is always test", () => {
+  const order=makeOrder({test:true,discount_codes:[],checkout_token:"valid_checkout_token_123"});
+  const payload=buildPayload("shop.myshopify.com",order,{test_mode:false});
+  assert.equal(payload.test,true);
+  assert.equal(payload.metadata.store.order_is_test,true);
+  assert.equal(payload.metadata.store.plugin_version,"1.7.0");
+});
+
+test("Phase 3 — incomplete checkout trail cannot assert platform ownership", () => {
+  const payload=buildPayload("shop.myshopify.com",makeOrder({
+    test:false,discount_codes:[{code:"SAVE10"}],checkout_token:"valid_checkout_token_123",
+  }),{});
+  assert.equal(payload.metadata.attribution_evidence.complete,false);
+  assert.deepEqual(payload.metadata.attribution_evidence.discount_codes,["SAVE10"]);
+});

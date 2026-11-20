@@ -34,44 +34,58 @@ const NOTE_ATTR_NAMES = [
  * last-click attribution. That requires validating the click IDs and their
  * timestamps in the attribution backend. Do not infer recency from their names.
  */
+export const PLUGIN_VERSION = "1.7.0";
+
+// The Web Pixel sees event times; cart attributes and line properties can
+// carry their own capture times. Names alone are NEVER evidence of recency.
+export function extractClickCandidates(order) {
+  if (!order) return [];
+  const result = [];
+  const add = (id, at, source) => {
+    if (typeof id !== "string" || !id.trim()) return;
+    const time = Number(at);
+    result.push({ click_id:id.trim(), at:Number.isFinite(time)&&time>0?time:null, source });
+  };
+  const notes = Array.isArray(order.note_attributes) ? order.note_attributes : [];
+  const noteValue = (key) => notes.find((a)=>a?.name===key)?.value;
+  const noteTime = noteValue("MyStorefront click_at") || noteValue("__MyStorefront click_at");
+  for (const name of NOTE_ATTR_NAMES) add(noteValue(name),noteTime,"cart");
+  for (const item of order.line_items || []) {
+    const props = item?.properties || [];
+    const value = (key) => Array.isArray(props)
+      ? props.find((p)=>p?.name===key)?.value : props[key];
+    const time = value("_MyStorefront click_at") || value("__MyStorefront click_at");
+    for (const name of LINE_ITEM_PROP_NAMES) add(value(name),time,"line_item");
+  }
+  return result;
+}
+
+export function resolveOrderClick(order, pixel = null) {
+  const cart=extractClickCandidates(order);
+  const pixelHistory=Array.isArray(pixel?.history)?pixel.history:[];
+  const seen=[...cart,...pixelHistory.map((x)=>({
+    click_id:x.click_id,at:Number(x.at),source:"web_pixel",
+  }))].filter((x)=>typeof x.click_id==="string"&&x.click_id.trim());
+  const newest=seen.filter((x)=>Number.isFinite(x.at)&&x.at>0)
+    .sort((a,b)=>b.at-a.at)[0];
+  const fallback=cart[0] || seen[0] || null;
+  const chosen=newest || fallback;
+  const allTimes=seen.length>0 && seen.every((x)=>Number.isFinite(x.at)&&x.at>0);
+  const sorted=[...new Set(seen.map((x)=>x.click_id))];
+  // Conflicting IDs without timestamps cannot establish a provable last touch.
+  const recencyComplete=allTimes && Boolean(newest) &&
+    (pixel?.history_complete===true || sorted.length===1);
+  return {
+    click_id:chosen?.click_id||null,
+    interaction_click_ids:sorted,
+    recency_complete:recencyComplete,
+    journey_id:pixel?.journey_id||null,
+    pixel_present:Boolean(pixel),
+  };
+}
 export function extractClickId(order) {
-  if (!order) return null;
-
-  // 1. Prefer cart/order attribution for the whole order.
-  const noteAttrs = order.note_attributes;
-  if (Array.isArray(noteAttrs)) {
-    for (const attrName of NOTE_ATTR_NAMES) {
-      const hit = noteAttrs.find((a) => a?.name === attrName);
-      const value = hit?.value;
-      if (typeof value === "string" && value.trim()) return value.trim();
-    }
-  }
-
-  // 2. Fall back to line item properties for accelerated checkout.
-  const lineItems = order.line_items || [];
-  for (const item of lineItems) {
-    const props = item?.properties;
-    if (!props) continue;
-
-    // Shopify webhooks deliver line item properties as an array of
-    // { name, value } objects. Some Admin API responses (and our own test
-    // fixtures) may use a plain object — handle both.
-    if (Array.isArray(props)) {
-      for (const propName of LINE_ITEM_PROP_NAMES) {
-        const hit = props.find((p) => p?.name === propName);
-        const value = hit?.value;
-        if (typeof value === "string" && value.trim()) return value.trim();
-      }
-    } else if (typeof props === "object") {
-      for (const propName of LINE_ITEM_PROP_NAMES) {
-        const value = props[propName];
-        if (typeof value === "string" && value.trim()) return value.trim();
-      }
-    }
-  }
-
-  // 3. No click_id anywhere.
-  return null;
+  return order?.__mystorefront_attribution?.click_id ||
+    resolveOrderClick(order).click_id;
 }
 
 /**
@@ -127,9 +141,25 @@ return {
   order_total: parseFloat(order.total_price || 0),
   eligible_product_subtotal: commissionableSubtotal,
   currency: order.currency || "USD",
-  test: Boolean(settings?.test_mode),
+  test: Boolean(settings?.test_mode) || order?.test === true,
   metadata: {
     event: "purchase",
+    attribution_evidence: {
+      complete: order?.__mystorefront_attribution?.recency_complete === true &&
+        typeof order.checkout_token === "string" &&
+        Array.isArray(order.discount_codes) && typeof order.test === "boolean",
+      discount_codes_complete: Array.isArray(order.discount_codes),
+      verified_test_status: order.test === true ? "test" :
+        order.test === false ? "live" : "unknown",
+      checkout_at: order.processed_at || order.created_at || null,
+      interaction_click_ids: order?.__mystorefront_attribution?.interaction_click_ids || [],
+      discount_codes: Array.isArray(order.discount_codes)
+        ? order.discount_codes.map((x)=>x.code).filter((x)=>typeof x==="string") : [],
+      // A paid order confirms that Shopify accepted its applied discount(s).
+      // The platform separately checks code ownership, expiry and brand rules.
+      creator_code_policy_passed: order.financial_status === "paid",
+      journey_id: order?.__mystorefront_attribution?.journey_id || null,
+    },
     event_time: new Date().toISOString(),
     order_number: String(order.name || order.order_number || order.id),
     order_status: order.financial_status || "paid",
@@ -145,6 +175,8 @@ return {
       phone: order.phone || order.customer?.phone || null,
     },
     store: {
+      plugin_version: PLUGIN_VERSION,
+      order_is_test: order?.test === true,
       platform: "shopify",
       site_url: `https://${shop}`,
     },
@@ -187,6 +219,8 @@ export function buildTestPayload(shop, settings) {
         phone: null,
       },
       store: {
+        plugin_version: PLUGIN_VERSION,
+        order_is_test: true,
         platform: "shopify",
         site_url: `https://${shop}`,
       },
@@ -247,7 +281,7 @@ export function buildRefundPayload(shop, order, refund, settings) {
     refund_id: String(refund.id),
     order_total: signedTotal,
     currency: order?.currency || "USD",
-    test: Boolean(settings?.test_mode),
+    test: Boolean(settings?.test_mode) || order?.test === true,
     metadata: {
       event: "refund",
       commission_basis: "discounted_products_excluding_shipping_and_tax",

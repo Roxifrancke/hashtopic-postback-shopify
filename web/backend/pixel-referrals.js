@@ -23,9 +23,17 @@ const tableReady = pool
       checkout_token  TEXT NOT NULL,
       click_id        TEXT NOT NULL,
       order_id        TEXT,
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      history         JSONB NOT NULL DEFAULT '[]'::jsonb,
+      journey_id      TEXT,
+      history_complete BOOLEAN NOT NULL DEFAULT FALSE,
       created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (shop, checkout_token)
     );
+    ALTER TABLE pixel_referrals ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    ALTER TABLE pixel_referrals ADD COLUMN IF NOT EXISTS history JSONB NOT NULL DEFAULT '[]'::jsonb;
+    ALTER TABLE pixel_referrals ADD COLUMN IF NOT EXISTS journey_id TEXT;
+    ALTER TABLE pixel_referrals ADD COLUMN IF NOT EXISTS history_complete BOOLEAN NOT NULL DEFAULT FALSE;
     CREATE INDEX IF NOT EXISTS idx_pixel_referrals_created ON pixel_referrals(created_at);
   `)
   .then(() => true)
@@ -34,37 +42,61 @@ const tableReady = pool
     return false;
   });
 
-export async function saveReferral({ shop, checkoutToken, clickId, orderId }) {
+export async function saveReferral({ shop, checkoutToken, clickId, orderId, history = [], journeyId = null, historyComplete = false }) {
   if (!(await tableReady)) return false;
-  // First click wins for a given checkout. Only fill order_id in later.
+  // An older observation may arrive after a newer one. Merge browser-seen
+  // click history, ordered by event time; last eligible click wins.
+  const reported = history.length ? history : [{ click_id: clickId, at: Date.now() }];
   await pool.query(
-    `INSERT INTO pixel_referrals (shop, checkout_token, click_id, order_id)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (shop, checkout_token)
-     DO UPDATE SET order_id = COALESCE(pixel_referrals.order_id, EXCLUDED.order_id)`,
-    [shop, checkoutToken, clickId, orderId]
+    `INSERT INTO pixel_referrals
+       (shop,checkout_token,click_id,order_id,history,journey_id,history_complete,updated_at)
+     VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,NOW())
+     ON CONFLICT (shop,checkout_token) DO UPDATE SET
+       history = (
+         SELECT coalesce(jsonb_agg(h ORDER BY (h->>'at')::numeric), '[]'::jsonb)
+         FROM (
+           SELECT DISTINCT ON (h->>'click_id') h
+           FROM jsonb_array_elements(pixel_referrals.history || EXCLUDED.history) AS h
+           WHERE h ? 'click_id' AND h ? 'at'
+           ORDER BY h->>'click_id', (h->>'at')::numeric DESC
+           LIMIT 50
+         ) newest
+       ),
+       click_id = CASE WHEN coalesce((SELECT max((h->>'at')::numeric)
+           FROM jsonb_array_elements(EXCLUDED.history) AS h),0) >=
+           coalesce((SELECT max((h->>'at')::numeric)
+           FROM jsonb_array_elements(pixel_referrals.history) AS h),0)
+           THEN EXCLUDED.click_id ELSE pixel_referrals.click_id END,
+       journey_id = CASE WHEN EXCLUDED.journey_id IS NOT NULL
+          THEN EXCLUDED.journey_id ELSE pixel_referrals.journey_id END,
+       history_complete = pixel_referrals.history_complete OR EXCLUDED.history_complete,
+       order_id = coalesce(pixel_referrals.order_id,EXCLUDED.order_id),
+       updated_at = NOW()`,
+    [shop,checkoutToken,clickId,orderId,JSON.stringify(reported),journeyId,historyComplete]
   );
   return true;
 }
 
-/** Look up the click_id for an order using its server-side checkout_token. */
-export async function findClickIdForOrder(shop, order) {
+/** Webhook-validated checkout token is the only key used to join pixel data. */
+export async function findEvidenceForOrder(shop, order) {
   const token = order?.checkout_token;
-  if (typeof token !== "string" || !CHECKOUT_TOKEN.test(token)) return null;
-  if (!(await tableReady)) return null;
+  if (typeof token !== "string" || !CHECKOUT_TOKEN.test(token) || !(await tableReady)) return null;
   try {
     const { rows } = await pool.query(
-      `SELECT click_id FROM pixel_referrals
-       WHERE shop = $1 AND checkout_token = $2
-         AND created_at > NOW() - ($3 || ' days')::interval
-       LIMIT 1`,
-      [shop, token, String(RETENTION_DAYS)]
+      `SELECT click_id,history,journey_id,history_complete,updated_at
+       FROM pixel_referrals WHERE shop=$1 AND checkout_token=$2
+         AND created_at > NOW() - ($3 || ' days')::interval LIMIT 1`,
+      [shop,token,String(RETENTION_DAYS)]
     );
-    return rows[0]?.click_id || null;
-  } catch (err) {
+    return rows[0] || null;
+  } catch(err) {
     console.error("[MS PIXEL] Lookup failed:", err.message);
     return null;
   }
+}
+export async function findClickIdForOrder(shop,order) {
+  const row=await findEvidenceForOrder(shop,order);
+  return row?.click_id || null;
 }
 
 export async function purgeOldReferrals(days = RETENTION_DAYS) {

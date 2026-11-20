@@ -20,5 +20,13 @@ export function validateReferral(body) {
   if (!SHOP.test(shop) || !CLICK_ID.test(clickId) || !CHECKOUT_TOKEN.test(checkoutToken)) {
     return null;
   }
-  return { shop, clickId, checkoutToken, orderId: parseOrderId(body.order_id) };
+  const raw = Array.isArray(body.click_history) ? body.click_history : [];
+  const history = raw.slice(-50).filter((x) => x && CLICK_ID.test(String(x.click_id || "")) &&
+    typeof x.at === "number" && Number.isFinite(x.at) &&
+    x.at > Date.now() - 30 * 86400000 && x.at <= Date.now() + 60000
+  ).map((x) => ({ click_id: String(x.click_id).toLowerCase(), at: x.at }));
+  const journeyId = typeof body.journey_id === "string" &&
+    CLICK_ID.test(body.journey_id) ? body.journey_id.toLowerCase() : null;
+  return { shop, clickId, checkoutToken, orderId: parseOrderId(body.order_id),
+    history, journeyId, historyComplete: body.history_complete === true };
 }

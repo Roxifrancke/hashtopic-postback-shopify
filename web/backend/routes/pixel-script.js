@@ -95,6 +95,8 @@ function generateCaptureScript(paramNames, cookieName, cookieDays) {
   // are not rendered in cart/checkout by default. Admin shows it under
   // "Additional details".
   var CART_ATTR_NAME = 'MyStorefront click_id';
+  var CART_AT_NAME = 'MyStorefront click_at';
+  var FORM_AT_NAME = 'properties[_MyStorefront click_at]';
   // sessionStorage flag so the cart attribute is written at most once per
   // session instead of on every page load (repeated /cart/update.js writes
   // make some themes re-render or flash the cart drawer as the shopper browses).
@@ -222,6 +224,7 @@ function getStoredClickId() {
   return ts ? (getLocalStorage() || getCookie(COOKIE_NAME)) : null;
 }
 
+  var timestampForClick = Date.now();
   // ── Cart attribute write (backward-compatible fallback) ──────────────────
 
   /**
@@ -241,6 +244,7 @@ function getStoredClickId() {
       }
       var attrs = {};
       attrs[CART_ATTR_NAME] = clickId;
+      attrs[CART_AT_NAME] = String(timestampForClick);
       // An empty value removes a creator ref left over from an earlier click.
       attrs[CREATOR_ATTR_NAME] = creatorRef || '';
       // Clear the private-name attributes from the short-lived __ version.
@@ -286,8 +290,11 @@ function getStoredClickId() {
   function injectIntoForm(form, clickId, creatorRef) {
     if (!form || !clickId) return;
 
-    // Already has properties[click_id]? Don't touch it.
-    if (!form.querySelector('input[name="' + FORM_INPUT_NAME + '"]')) {
+    var existingClick = form.querySelector('input[name="' + FORM_INPUT_NAME + '"]');
+    // Refresh fields this plugin owns when a later platform click replaces
+    // an earlier creator click; never leave a stale creator in item properties.
+    if (existingClick && existingClick.hasAttribute('data-mystorefront-postback')) existingClick.value = clickId;
+    if (!existingClick) {
       var input = document.createElement('input');
       input.type = 'hidden';
       input.name = FORM_INPUT_NAME;
@@ -296,8 +303,20 @@ function getStoredClickId() {
       form.appendChild(input);
     }
 
-    if (!creatorRef) return;
+    var oldAt = form.querySelector('input[name="' + FORM_AT_NAME + '"]');
+    if (oldAt && oldAt.hasAttribute('data-mystorefront-postback')) oldAt.value = String(timestampForClick);
+    else if (!oldAt) {
+      var timeInput = document.createElement('input');
+      timeInput.type='hidden'; timeInput.name=FORM_AT_NAME;
+      timeInput.value=String(timestampForClick);
+      timeInput.setAttribute('data-mystorefront-postback','1');
+      form.appendChild(timeInput);
+    }
     var existingCreator = form.querySelector('input[name="' + CREATOR_FORM_INPUT + '"]');
+    if (!creatorRef) {
+      if (existingCreator && existingCreator.hasAttribute('data-mystorefront-postback')) existingCreator.remove();
+      return;
+    }
     if (existingCreator) {
       // Only refresh an input we placed ourselves.
       if (existingCreator.hasAttribute('data-mystorefront-postback')) existingCreator.value = creatorRef;
@@ -420,11 +439,13 @@ function getStoredClickId() {
     })());
 
     if (fromUrl) {
+      timestampForClick = timestamp;
       setCookie(COOKIE_NAME, fromUrl, COOKIE_DAYS);
       setLocalStorage(fromUrl, timestamp);
       // A new click replaces the creator ref. A link without one clears it.
       setStoredCreator(getCreatorFromUrl());
     } else if (clickId) {
+      timestampForClick = timestamp;
       // Heal a localStorage-only or cookie-only state back into both.
       var remaining = Math.max(0, COOKIE_DAYS - (Date.now() - timestamp) / 864e5);
       setLocalStorage(clickId, timestamp);

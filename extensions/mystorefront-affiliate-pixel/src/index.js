@@ -16,6 +16,7 @@ const CLICK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
 const SHOP = /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/;
 const STORAGE_KEY = "mystorefront_pixel_referral_v1";
 const MAX_AGE_MS = 30 * 86400000;
+const HISTORY_KEY = "mystorefront_pixel_history_v2";
 
 function clickIdFromUrl(href) {
   try {
@@ -52,7 +53,20 @@ register(({ analytics, browser, settings }) => {
     if (!id) return;
     try {
       // Newest click wins, same as the theme embed (URL beats stored value).
-      await browser.localStorage.setItem(STORAGE_KEY, JSON.stringify({ click_id: id, at: Date.now() }));
+
+      const at = Date.now();
+      const location = new URL(event.context.document.location.href);
+      const journey = location.searchParams.get("journey_id");
+      await browser.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        click_id: id, at, journey_id: journey && CLICK_ID.test(journey) ? journey.toLowerCase() : null,
+      }));
+      const existing = await browser.localStorage.getItem(HISTORY_KEY);
+      let history = [];
+      try { const parsed = JSON.parse(existing || "[]"); if (Array.isArray(parsed)) history=parsed; } catch {}
+      history = history.filter((x) => x && CLICK_ID.test(x.click_id) && Number.isFinite(x.at) &&
+        at-x.at < MAX_AGE_MS && x.at<=at).slice(-49);
+      history.push({click_id:id,at});
+      await browser.localStorage.setItem(HISTORY_KEY,JSON.stringify(history));
     } catch {}
   }
 
@@ -63,6 +77,11 @@ register(({ analytics, browser, settings }) => {
     const stored = await readStored();
     if (!stored) return;
     try {
+      const rawHistory = await browser.localStorage.getItem(HISTORY_KEY);
+      let history = [];
+      try { const p=JSON.parse(rawHistory || "[]"); if(Array.isArray(p)) history=p; } catch {}
+      history=history.filter((x) => x && CLICK_ID.test(x.click_id) &&
+        Number.isFinite(x.at) && Date.now()-x.at<MAX_AGE_MS).slice(-50);
       // text/plain keeps this a "simple" request, so no CORS preflight is needed.
       await fetch(endpoint, {
         method: "POST",
@@ -71,6 +90,9 @@ register(({ analytics, browser, settings }) => {
           shop,
           click_id: stored.click_id,
           checkout_token: token,
+          click_history: history,
+          history_complete: history.some((x) => x.click_id===stored.click_id),
+          journey_id: stored.journey_id || null,
           order_id: checkout?.order?.id ? String(checkout.order.id) : null,
         }),
         keepalive: true,
