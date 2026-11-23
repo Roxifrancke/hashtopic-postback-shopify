@@ -375,7 +375,7 @@ function getStoredClickId() {
   // Current themes skip line item properties starting with "_". Some older
   // themes print every property, so hide just the rows that contain nothing
   // but our MyStorefront notes. Display only: tracking is unaffected.
-  var MS_ROW_RE = /_*MyStorefront (?:click_id|Creator Referral|creator)\\s*:?\\s*[A-Za-z0-9._-]*/g;
+  var MS_ROW_RE = /_*MyStorefront (?:click_id|click_at|Creator Referral|creator)\\s*:?\\s*[A-Za-z0-9._-]*/g;
 
   function onlyOurText(el) {
     var t = (el.textContent || '').replace(MS_ROW_RE, '');
