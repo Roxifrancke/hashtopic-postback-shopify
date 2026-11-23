@@ -21,7 +21,7 @@
 /* Hide MyStorefront item notes on older themes straight away, without
    waiting for capture.js to load. Display only, tracking is unaffected. */
 (function () {
-  var RE = /_*MyStorefront (?:click_id|Creator Referral|creator)\s*:?\s*[A-Za-z0-9._-]*/g;
+  var RE = /_*MyStorefront (?:click_id|click_at|Creator Referral|creator)\s*:?\s*[A-Za-z0-9._-]*/g;
   function onlyOurs(el) {
     return (el.textContent || '').replace(RE, '').replace(/[\s:]/g, '') === '';
   }
