@@ -12,6 +12,7 @@ import {
 import {
   buildPayload,
   buildRefundPayload,
+  buildCancellationPayload,
   sendPayload,
   nextRetryAt,
   extractClickId,
@@ -205,6 +206,34 @@ async function processRefund(shop, refund, shopify) {
   }
 }
 
+// A cancellation has its own delivery identity and stored payload; it must
+// never overwrite a purchase or refund delivery for the same order.
+async function processCancellation(shop, order) {
+  const settings = await getSettings(shop);
+  if (!settings?.webhook_url) throw new Error("Cancellation webhook URL unavailable");
+  const key = "cancel_" + order.id;
+  const delivery = await upsertDelivery(shop, key, order.name || String(order.id));
+  if (delivery.status === "sent" || delivery.attempts >= MAX_RETRY) return;
+  const claimed = await claimDelivery(delivery.id, MAX_RETRY);
+  if (!claimed) return;
+  const payload = buildCancellationPayload(shop, order, settings);
+  await saveDeliveryPayload(delivery.id, JSON.stringify(payload));
+  const result = await sendPayload(payload, settings);
+  if (result.success) {
+    await markDeliverySent(delivery.id, result.httpCode);
+  } else {
+    const attempt = delivery.attempts + 1;
+    await markDeliveryFailed(delivery.id, result.httpCode, result.error,
+      attempt < MAX_RETRY ? nextRetryAt(attempt) : null);
+  }
+}
+
+const ordersCancelled = async (topic, shop, body, webhookId) => {
+  const order = JSON.parse(body);
+  if (!order?.id) throw new Error("Cancellation order id missing");
+  await processCancellation(shop, order);
+};
+
 const refundsCreate = async (topic, shop, body, webhookId, shopify) => {
   try {
     const refund = JSON.parse(body);
@@ -234,6 +263,7 @@ async function processPixelReferral(shop, referral, shopify) {
 export default {
   ordersPaid,
   ordersUpdated,
+  ordersCancelled,
   refundsCreate,
   processOrder,
   processRefund,
