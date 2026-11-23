@@ -245,6 +245,29 @@ export function buildTestPayload(shop, settings) {
  * (so we can pull click_id from note_attributes — refund webhooks don't
  * include it directly).
  */
+export function buildCancellationPayload(shop, order, settings) {
+  return {
+    click_id: extractClickId(order) || null,
+    order_id: String(order.id),
+    cancellation_id: "cancel:" + order.id,
+    order_total: parseFloat(order.total_price || 0),
+    currency: order.currency || "USD",
+    test: Boolean(settings?.test_mode) || order?.test === true,
+    metadata: {
+      event: "cancel",
+      event_time: order.cancelled_at || new Date().toISOString(),
+      order_number: String(order.name || order.order_number || order.id),
+      order_status: "cancelled",
+      store: {
+        platform: "shopify",
+        plugin_version: PLUGIN_VERSION,
+        order_is_test: order?.test === true,
+        site_url: "https://" + shop,
+      },
+    },
+  };
+}
+
 export function buildRefundPayload(shop, order, refund, settings) {
   const clickId = extractClickId(order);
 
