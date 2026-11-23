@@ -268,6 +268,8 @@ app.post("/api/webhooks", express.text({ type: "*/*" }), async (req, res) => {
       await webhookHandlers.ordersPaid(topic, shop, req.body);
     } else if (topic === "orders/updated") {
       await webhookHandlers.ordersUpdated(topic, shop, req.body);
+    } else if (topic === "orders/cancelled") {
+      await webhookHandlers.ordersCancelled(topic, shop, req.body);
     } else if (topic === "refunds/create") {
       await webhookHandlers.refundsCreate(topic, shop, req.body, undefined, shopify);
     } else if (topic === "discounts/create" || topic === "discounts/update" || topic === "discounts/delete") {
