@@ -63,15 +63,24 @@ export function extractClickCandidates(order) {
 export function resolveOrderClick(order, pixel = null) {
   const cart=extractClickCandidates(order);
   const pixelHistory=Array.isArray(pixel?.history)?pixel.history:[];
-  const seen=[...cart,...pixelHistory.map((x)=>({
+  const candidates=[...cart,...pixelHistory.map((x)=>({
     click_id:x.click_id,at:Number(x.at),source:"web_pixel",
   }))].filter((x)=>typeof x.click_id==="string"&&x.click_id.trim());
+  const byId=new Map();
+  for (const candidate of candidates) {
+    const previous=byId.get(candidate.click_id);
+    if (!previous || (Number.isFinite(candidate.at)&&candidate.at>0 &&
+      (!(Number.isFinite(previous.at)&&previous.at>0) || candidate.at>previous.at))) {
+      byId.set(candidate.click_id,candidate);
+    }
+  }
+  const seen=[...byId.values()];
   const newest=seen.filter((x)=>Number.isFinite(x.at)&&x.at>0)
     .sort((a,b)=>b.at-a.at)[0];
   const fallback=cart[0] || seen[0] || null;
   const chosen=newest || fallback;
   const allTimes=seen.length>0 && seen.every((x)=>Number.isFinite(x.at)&&x.at>0);
-  const sorted=[...new Set(seen.map((x)=>x.click_id))];
+  const sorted=seen.map((x)=>x.click_id);
   // Conflicting IDs without timestamps cannot establish a provable last touch.
   const recencyComplete=allTimes && Boolean(newest) &&
     (pixel?.history_complete===true || sorted.length===1);

@@ -16,6 +16,7 @@ import {
   buildRefundPayload,
   buildTestPayload,
   extractClickId,
+  resolveOrderClick,
   nextRetryAt,
 } from "../backend/postback-sender.js";
 
@@ -643,4 +644,39 @@ test("Phase 3 — incomplete checkout trail cannot assert platform ownership", (
   }),{});
   assert.equal(payload.metadata.attribution_evidence.complete,false);
   assert.deepEqual(payload.metadata.attribution_evidence.discount_codes,["SAVE10"]);
+});
+
+test("Phase 3 — pixel timestamp completes matching untimed cart and line item clicks", () => {
+  const order=makeOrder({
+    test:false,discount_codes:[],checkout_token:"valid_checkout_token_123",
+    line_items:[{properties:[{name:"_MyStorefront click_id",value:"abc123xyz"}]}],
+  });
+  const resolved=resolveOrderClick(order,{
+    history_complete:true,history:[{click_id:"abc123xyz",at:1763000000000}],
+  });
+  assert.equal(resolved.recency_complete,true);
+  assert.equal(resolved.click_id,"abc123xyz");
+  assert.deepEqual(resolved.interaction_click_ids,["abc123xyz"]);
+  const payload=buildPayload("shop.myshopify.com",{...order,__mystorefront_attribution:resolved},{});
+  assert.equal(payload.metadata.attribution_evidence.complete,true);
+});
+
+test("Phase 3 — untimed cart click absent from pixel history remains incomplete", () => {
+  const resolved=resolveOrderClick(makeOrder(),{
+    history_complete:true,history:[{click_id:"different_click",at:1763000000000}],
+  });
+  assert.equal(resolved.recency_complete,false);
+  assert.deepEqual(resolved.interaction_click_ids,["abc123xyz","different_click"]);
+});
+
+test("Phase 3 — newest pixel click wins after merging duplicate cart click", () => {
+  const resolved=resolveOrderClick(makeOrder(),{
+    history_complete:true,history:[
+      {click_id:"newer_click",at:1763000010000},
+      {click_id:"abc123xyz",at:1763000000000},
+    ],
+  });
+  assert.equal(resolved.recency_complete,true);
+  assert.equal(resolved.click_id,"newer_click");
+  assert.deepEqual(resolved.interaction_click_ids,["abc123xyz","newer_click"]);
 });
