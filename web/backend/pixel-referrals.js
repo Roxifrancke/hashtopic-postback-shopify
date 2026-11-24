@@ -37,8 +37,8 @@ const tableReady = pool
     CREATE INDEX IF NOT EXISTS idx_pixel_referrals_created ON pixel_referrals(created_at);
   `)
   .then(() => true)
-  .catch((err) => {
-    console.error("[MS PIXEL] Could not create pixel_referrals table:", err.message);
+  .catch(() => {
+    console.error("[MS PIXEL] Could not create pixel_referrals table");
     return false;
   });
 
@@ -80,13 +80,20 @@ export async function saveReferral({ shop, checkoutToken, clickId, orderId, hist
 /** Webhook-validated checkout token is the only key used to join pixel data. */
 export async function findEvidenceForOrder(shop, order) {
   const token = order?.checkout_token;
-  const logLookup = (found) => console.log("[MS PIXEL] Lookup", JSON.stringify({
-    shop: SHOP.test(shop) ? shop : null,
-    checkout_token_prefix: typeof token === "string" && CHECKOUT_TOKEN.test(token) ? token.slice(0, 8) : null,
-    found,
-  }));
+  const logLookup = async (found) => {
+    try {
+      if (!(await getSettings(shop))?.debug) return;
+      console.log("[MS PIXEL] Lookup", JSON.stringify({
+        shop: SHOP.test(shop) ? shop : null,
+        checkout_token_prefix: typeof token === "string" && CHECKOUT_TOKEN.test(token) ? token.slice(0, 8) : null,
+        found,
+      }));
+    } catch {
+      console.error("[MS PIXEL] Could not read lookup debug settings");
+    }
+  };
   if (typeof token !== "string" || !CHECKOUT_TOKEN.test(token) || !(await tableReady)) {
-    logLookup(false);
+    await logLookup(false);
     return null;
   }
   try {
@@ -96,11 +103,11 @@ export async function findEvidenceForOrder(shop, order) {
          AND created_at > NOW() - ($3 || ' days')::interval LIMIT 1`,
       [shop,token,String(RETENTION_DAYS)]
     );
-    logLookup(Boolean(rows[0]));
+    await logLookup(Boolean(rows[0]));
     return rows[0] || null;
-  } catch(err) {
-    logLookup(false);
-    console.error("[MS PIXEL] Lookup failed:", err.message);
+  } catch {
+    await logLookup(false);
+    console.error("[MS PIXEL] Lookup failed");
     return null;
   }
 }
@@ -146,7 +153,11 @@ export function pixelReferralRouter({ onReferral } = {}) {
     (req, res, next) => {
       const diagnostic = { result: "invalid", shop: null, checkout_token_prefix: null, history_count: 0, order_id_sent: false };
       req.pixelDiagnostic = diagnostic;
-      res.once("finish", () => console.log("[MS PIXEL] POST", JSON.stringify(diagnostic)));
+      res.once("finish", () => {
+        if (diagnostic.result !== "saved" || req.pixelDebug) {
+          console.log("[MS PIXEL] POST", JSON.stringify(diagnostic));
+        }
+      });
       next();
     },
     json({ limit: "2kb" }),
@@ -176,6 +187,7 @@ export function pixelReferralRouter({ onReferral } = {}) {
           return res.status(404).json({ result: "unknown_shop" });
         }
 
+        req.pixelDebug = Boolean(settings.debug);
         const saved = await saveReferral(referral);
         if (!saved) {
           diagnostic.result = "unavailable";
@@ -187,13 +199,13 @@ export function pixelReferralRouter({ onReferral } = {}) {
         res.status(202).json({ result: "saved" });
 
         if (onReferral) {
-          Promise.resolve(onReferral(referral)).catch((err) =>
-            console.error("[MS PIXEL] Follow-up processing failed:", err?.message || err)
+          Promise.resolve(onReferral(referral)).catch(() =>
+            console.error("[MS PIXEL] Follow-up processing failed")
           );
         }
-      } catch (err) {
+      } catch {
         if (!res.headersSent) diagnostic.result = "error";
-        console.error("[MS PIXEL] Receiver error:", err?.message || err);
+        console.error("[MS PIXEL] Receiver error");
         if (!res.headersSent) res.status(503).json({ result: "unavailable" });
       }
     }
