@@ -11,7 +11,7 @@
 // and is ignored unless the fetched order's checkout_token matches.
 import { Router, json, text } from "express";
 import pool, { getSettings } from "./db.js";
-import { validateReferral, CHECKOUT_TOKEN } from "./pixel-referral-input.js";
+import { validateReferral, CHECKOUT_TOKEN, SHOP } from "./pixel-referral-input.js";
 
 export { validateReferral, parseOrderId } from "./pixel-referral-input.js";
 const RETENTION_DAYS = 60;
@@ -80,7 +80,15 @@ export async function saveReferral({ shop, checkoutToken, clickId, orderId, hist
 /** Webhook-validated checkout token is the only key used to join pixel data. */
 export async function findEvidenceForOrder(shop, order) {
   const token = order?.checkout_token;
-  if (typeof token !== "string" || !CHECKOUT_TOKEN.test(token) || !(await tableReady)) return null;
+  const logLookup = (found) => console.log("[MS PIXEL] Lookup", JSON.stringify({
+    shop: SHOP.test(shop) ? shop : null,
+    checkout_token_prefix: typeof token === "string" && CHECKOUT_TOKEN.test(token) ? token.slice(0, 8) : null,
+    found,
+  }));
+  if (typeof token !== "string" || !CHECKOUT_TOKEN.test(token) || !(await tableReady)) {
+    logLookup(false);
+    return null;
+  }
   try {
     const { rows } = await pool.query(
       `SELECT click_id,history,journey_id,history_complete,updated_at
@@ -88,8 +96,10 @@ export async function findEvidenceForOrder(shop, order) {
          AND created_at > NOW() - ($3 || ' days')::interval LIMIT 1`,
       [shop,token,String(RETENTION_DAYS)]
     );
+    logLookup(Boolean(rows[0]));
     return rows[0] || null;
   } catch(err) {
+    logLookup(false);
     console.error("[MS PIXEL] Lookup failed:", err.message);
     return null;
   }
@@ -133,6 +143,12 @@ export function pixelReferralRouter({ onReferral } = {}) {
 
   router.post(
     "/",
+    (req, res, next) => {
+      const diagnostic = { result: "invalid", shop: null, checkout_token_prefix: null, history_count: 0, order_id_sent: false };
+      req.pixelDiagnostic = diagnostic;
+      res.once("finish", () => console.log("[MS PIXEL] POST", JSON.stringify(diagnostic)));
+      next();
+    },
     json({ limit: "2kb" }),
     text({ type: "text/*", limit: "2kb" }),
     async (req, res) => {
@@ -141,20 +157,32 @@ export function pixelReferralRouter({ onReferral } = {}) {
         try { body = JSON.parse(body); } catch { body = null; }
       }
 
+      const diagnostic = req.pixelDiagnostic;
+      const shop = typeof body?.shop === "string" ? body.shop.toLowerCase() : "";
+      const token = body?.checkout_token;
+      diagnostic.shop = SHOP.test(shop) ? shop : null;
+      diagnostic.checkout_token_prefix = typeof token === "string" && CHECKOUT_TOKEN.test(token) ? token.slice(0, 8) : null;
+      diagnostic.history_count = Array.isArray(body?.click_history) ? body.click_history.length : 0;
+      diagnostic.order_id_sent = body?.order_id != null;
+
       const referral = validateReferral(body);
       if (!referral) return res.status(400).json({ result: "invalid" });
 
       try {
         // Only accept referrals for shops that have this app installed.
         const settings = await getSettings(referral.shop);
-        if (!settings) return res.status(404).json({ result: "unknown_shop" });
+        if (!settings) {
+          diagnostic.result = "unknown_shop";
+          return res.status(404).json({ result: "unknown_shop" });
+        }
 
         const saved = await saveReferral(referral);
-        if (!saved) return res.status(503).json({ result: "unavailable" });
-
-        if (settings.debug) {
-          console.log(`[MS PIXEL] Referral saved for ${referral.shop} (order hint: ${referral.orderId || "none"})`);
+        if (!saved) {
+          diagnostic.result = "unavailable";
+          return res.status(503).json({ result: "unavailable" });
         }
+
+        diagnostic.result = "saved";
 
         res.status(202).json({ result: "saved" });
 
@@ -164,6 +192,7 @@ export function pixelReferralRouter({ onReferral } = {}) {
           );
         }
       } catch (err) {
+        if (!res.headersSent) diagnostic.result = "error";
         console.error("[MS PIXEL] Receiver error:", err?.message || err);
         if (!res.headersSent) res.status(503).json({ result: "unavailable" });
       }
