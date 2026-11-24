@@ -374,6 +374,38 @@ export default function discountCodesRouter(shopify) {
     }
   });
 
+  // Exact rule lookup for the authenticated MyStorefront coupon webhook.
+  // A failed list request is not a deletion; only an explicit rule 404 is.
+  router.get("/rule/:id", async (req, res) => {
+    const adminFetch = res.locals.adminFetch;
+    const id = req.params.id;
+    if (!/^\d+$/.test(id)) return res.status(400).json({ error: "Invalid rule ID" });
+    if (!adminFetch) return res.status(400).json({ error: "Store not connected" });
+    try {
+      const ruleRes = await adminFetch(`price_rules/${id}.json`);
+      if (ruleRes.status === 404) return res.json({ missing: true, codes: [] });
+      if (!ruleRes.ok) return res.status(502).json({ error: "Rule lookup failed" });
+      const { price_rule: rule } = await ruleRes.json();
+      if (!rule || String(rule.id) !== id) return res.status(502).json({ error: "Invalid rule response" });
+      const codesRes = await adminFetch(`price_rules/${id}/discount_codes.json?limit=2&fields=id,code,usage_count`);
+      if (!codesRes.ok) return res.status(502).json({ error: "Code lookup failed" });
+      const { discount_codes: codes } = await codesRes.json();
+      if (!Array.isArray(codes)) return res.status(502).json({ error: "Invalid code response" });
+      if (!SHOPIFY_TYPE_TO_MS[rule.value_type]) return res.json({ codes: [] });
+      return res.json({ codes: codes.map(dc => ({
+        price_rule_id: String(rule.id), code: dc.code.toUpperCase(),
+        discount_type: SHOPIFY_TYPE_TO_MS[rule.value_type],
+        discount_value: Math.abs(parseFloat(rule.value)),
+        minimum_order_value: parseFloat(rule.prerequisite_subtotal_range?.greater_than_or_equal_to || 0) || null,
+        ends_at: rule.ends_at || null,
+        is_active: !rule.ends_at || new Date(rule.ends_at) > new Date(),
+        usage_limit: rule.usage_limit || null, usage_count: dc.usage_count || 0,
+      })) });
+    } catch {
+      return res.status(502).json({ error: "Discount lookup failed" });
+    }
+  });
+
   // ── POST /api/discount-codes — create, update, or delete ───────────────
   // Accepts an optional `price_rule_id` (fast-path, skips title lookup) and
   // recognises `is_active` / `active` / `published` / `ends_at` so the

@@ -46,6 +46,7 @@ import { tagOneDiscount, readRules, ensureRejectDiscount } from "./referral-tagg
 import settingsRouter from "./routes/settings.js";
 import deliveriesRouter from "./routes/deliveries.js";
 import webhookHandlers from "./webhooks/index.js";
+import { forwardDiscountEvent } from "./webhooks/discount-forwarding.js";
 import { startRetryWorker } from "./retry-worker.js";
 import { pixelScriptRouter } from "./routes/pixel-script.js";
 import discountCodesRouter from "./routes/discount-codes.js";
@@ -291,6 +292,7 @@ app.post("/api/webhooks", express.text({ type: "*/*" }), async (req, res) => {
         })
         .then((r) => r && console.log(`[MS RULES] ${topic} ${gid} for ${shop}: ${r.status}`))
         .catch((err) => console.warn(`[MS RULES] ${topic} failed for ${shop}:`, err?.message || err));
+      await forwardDiscountEvent(topic, shop, gid);
     }
     res.status(200).send("OK");
   } catch (err) {
